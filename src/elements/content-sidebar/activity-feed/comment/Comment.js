@@ -1,14 +1,14 @@
 // @flow
 import * as React from 'react';
-import noop from 'lodash/noop';
 import classNames from 'classnames';
+import noop from 'lodash/noop';
 import { FormattedMessage } from 'react-intl';
 import TetherComponent from 'react-tether';
+import Trash16 from '../../../../icon/line/Trash16';
+import Pencil16 from '../../../../icon/line/Pencil16';
 import Avatar from '../Avatar';
 import Media from '../../../../components/media';
 import { MenuItem } from '../../../../components/menu';
-import IconTrash from '../../../../icons/general/IconTrash';
-import IconPencil from '../../../../icons/general/IconPencil';
 import { ACTIVITY_TARGETS } from '../../../common/interactionTargets';
 import DeleteConfirmation from '../common/delete-confirmation';
 import ActivityTimestamp from '../common/activity-timestamp';
@@ -16,9 +16,12 @@ import UserLink from '../common/user-link';
 import ActivityError from '../common/activity-error';
 import ActivityMessage from '../common/activity-message';
 import CommentForm from '../comment-form';
-import { bdlGray80 } from '../../../../styles/variables';
 import { PLACEHOLDER_USER } from '../../../../constants';
 import messages from './messages';
+import type { GetAvatarUrlCallback, GetProfileUrlCallback } from '../../../common/flowTypes';
+import type { Translations } from '../../flowTypes';
+import type { SelectorItems, User } from '../../../../common/types/core';
+import type { BoxCommentPermission, ActionItemError } from '../../../../common/types/feed';
 import './Comment.scss';
 
 type Props = {
@@ -32,11 +35,11 @@ type Props = {
     id: string,
     isDisabled?: boolean,
     isPending?: boolean,
-    mentionSelectorContacts?: SelectorItems,
+    mentionSelectorContacts?: SelectorItems<>,
     modified_at?: string | number,
-    onDelete?: Function,
-    onEdit?: Function,
-    permissions?: BoxItemPermission,
+    onDelete: ({ id: string, permissions?: BoxCommentPermission }) => any,
+    onEdit: (id: string, text: string, hasMention: boolean, permissions?: BoxCommentPermission) => any,
+    permissions?: BoxCommentPermission,
     tagged_message: string,
     translatedTaggedMessage?: string,
     translations?: Translations,
@@ -49,6 +52,11 @@ type State = {
 };
 
 class Comment extends React.Component<Props, State> {
+    static defaultProps = {
+        onDelete: noop,
+        onEdit: noop,
+    };
+
     state = {
         isConfirmingDelete: false,
         isEditing: false,
@@ -57,10 +65,7 @@ class Comment extends React.Component<Props, State> {
 
     handleDeleteConfirm = (): void => {
         const { id, onDelete, permissions } = this.props;
-
-        if (onDelete) {
-            onDelete({ id, permissions });
-        }
+        onDelete({ id, permissions });
     };
 
     handleDeleteCancel = (): void => {
@@ -81,9 +86,9 @@ class Comment extends React.Component<Props, State> {
 
     commentFormSubmitHandler = (): void => this.setState({ isInputOpen: false, isEditing: false });
 
-    handleUpdate = (args: any): void => {
-        const { onEdit = noop } = this.props;
-        onEdit(args);
+    handleUpdate = ({ id, text, hasMention }: { hasMention: boolean, id: string, text: string }): void => {
+        const { onEdit, permissions } = this.props;
+        onEdit(id, text, hasMention, permissions);
         this.commentFormSubmitHandler();
     };
 
@@ -109,7 +114,7 @@ class Comment extends React.Component<Props, State> {
         const { isConfirmingDelete, isEditing, isInputOpen } = this.state;
         const createdAtTimestamp = new Date(created_at).getTime();
         const createdByUser = created_by || PLACEHOLDER_USER;
-        const canEdit = !!onEdit && permissions.can_edit; // comment editing not supported
+        const canEdit = onEdit !== noop && permissions.can_edit;
         const canDelete = permissions.can_delete;
         const isMenuVisible = (canDelete || canEdit) && !isPending;
 
@@ -131,30 +136,37 @@ class Comment extends React.Component<Props, State> {
                                 constraints={[{ to: 'scrollParent', attachment: 'together' }]}
                                 targetAttachment="bottom right"
                             >
-                                <Media.Menu isDisabled={isConfirmingDelete} data-testid="comment-actions-menu">
+                                <Media.Menu
+                                    isDisabled={isConfirmingDelete}
+                                    data-testid="comment-actions-menu"
+                                    menuProps={{
+                                        'data-resin-component': ACTIVITY_TARGETS.COMMENT_OPTIONS,
+                                    }}
+                                >
                                     {canEdit && (
                                         <MenuItem
-                                            data-resin-target={ACTIVITY_TARGETS.INLINE_EDIT}
+                                            data-resin-target={ACTIVITY_TARGETS.COMMENT_OPTIONS_EDIT}
                                             data-testid="edit-comment"
                                             onClick={this.handleEditClick}
                                         >
-                                            <IconPencil color={bdlGray80} />
+                                            <Pencil16 />
                                             <FormattedMessage {...messages.commentEditMenuItem} />
                                         </MenuItem>
                                     )}
                                     {canDelete && (
                                         <MenuItem
-                                            data-resin-target={ACTIVITY_TARGETS.INLINE_DELETE}
+                                            data-resin-target={ACTIVITY_TARGETS.COMMENT_OPTIONS_DELETE}
                                             data-testid="delete-comment"
                                             onClick={this.handleDeleteClick}
                                         >
-                                            <IconTrash color={bdlGray80} />
+                                            <Trash16 />
                                             <FormattedMessage {...messages.commentDeleteMenuItem} />
                                         </MenuItem>
                                     )}
                                 </Media.Menu>
                                 {isConfirmingDelete && (
                                     <DeleteConfirmation
+                                        data-resin-component={ACTIVITY_TARGETS.COMMENT_OPTIONS}
                                         isOpen={isConfirmingDelete}
                                         message={messages.commentDeletePrompt}
                                         onDeleteCancel={this.handleDeleteCancel}
@@ -163,7 +175,7 @@ class Comment extends React.Component<Props, State> {
                                 )}
                             </TetherComponent>
                         )}
-                        <div>
+                        <div className="bcs-Comment-headline">
                             <UserLink
                                 data-resin-target={ACTIVITY_TARGETS.PROFILE}
                                 id={createdByUser.id}
@@ -175,14 +187,14 @@ class Comment extends React.Component<Props, State> {
                             <ActivityTimestamp date={createdAtTimestamp} />
                         </div>
                         {isEditing ? (
-                            /* NOTE: Inline editing is not currently supported for comments */
                             <CommentForm
                                 isDisabled={isDisabled}
-                                className={classNames('bcs-activity-feed-comment-input', {
+                                className={classNames('bcs-Comment-editor', {
                                     'bcs-is-disabled': isDisabled,
                                 })}
                                 updateComment={this.handleUpdate}
                                 isOpen={isInputOpen}
+                                // $FlowFixMe
                                 user={currentUser}
                                 onCancel={this.commentFormCancelHandler}
                                 onFocus={this.commentFormFocusHandler}
@@ -205,6 +217,7 @@ class Comment extends React.Component<Props, State> {
                         )}
                     </Media.Body>
                 </Media>
+                {/* $FlowFixMe */}
                 {error ? <ActivityError {...error} /> : null}
             </div>
         );

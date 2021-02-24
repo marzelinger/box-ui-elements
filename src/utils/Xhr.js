@@ -24,8 +24,8 @@ import {
     HTTP_HEAD,
     HTTP_STATUS_CODE_RATE_LIMIT,
 } from '../constants';
-
-type PayloadType = StringAnyMap | Array<StringAnyMap>;
+import type { APIOptions, Method, PayloadType, RequestData } from '../common/types/api';
+import type { StringAnyMap, StringMap, Token } from '../common/types/core';
 
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120000;
 const MAX_NUM_RETRIES = 3;
@@ -94,7 +94,7 @@ class Xhr {
         requestInterceptor,
         retryableStatusCodes = [HTTP_STATUS_CODE_RATE_LIMIT],
         shouldRetry = true,
-    }: Options = {}) {
+    }: APIOptions = {}) {
         this.clientName = clientName;
         this.id = id;
         this.language = language;
@@ -212,13 +212,11 @@ class Xhr {
      * @return {Object} Headers
      */
     async getHeaders(id?: string, args: StringMap = {}) {
-        const headers: StringMap = Object.assign(
-            {
-                Accept: 'application/json',
-                [HEADER_CONTENT_TYPE]: 'application/json',
-            },
-            args,
-        );
+        const headers: StringMap = {
+            Accept: 'application/json',
+            [HEADER_CONTENT_TYPE]: 'application/json',
+            ...args,
+        };
 
         if (this.language && !headers[HEADER_ACCEPT_LANGUAGE]) {
             headers[HEADER_ACCEPT_LANGUAGE] = this.language;
@@ -329,19 +327,7 @@ class Xhr {
      * @param {Object} [headers] - Key-value map of headers
      * @return {Promise} - HTTP response
      */
-    put({
-        url,
-        id,
-        data,
-        params,
-        headers = {},
-    }: {
-        data: PayloadType,
-        headers?: StringMap,
-        id?: string,
-        params?: StringAnyMap,
-        url: string,
-    }): Promise<StringAnyMap> {
+    put({ url, id, data, params, headers = {} }: RequestData): Promise<StringAnyMap> {
         return this.post({ id, url, data, params, headers, method: HTTP_PUT });
     }
 
@@ -474,7 +460,6 @@ class Xhr {
                         progressHandler(event);
                     };
                 }
-
                 this.axios({
                     url,
                     data,
@@ -527,6 +512,7 @@ class Xhr {
         }
         if (this.axiosSource) {
             this.axiosSource.cancel();
+            this.axiosSource = axios.CancelToken.source();
         }
     }
 }

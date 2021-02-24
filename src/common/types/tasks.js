@@ -1,11 +1,21 @@
 // @flow
-import type { FileMini, FolderMini, ISODate, UserMini, MarkerPaginatedCollection } from './core';
+import type {
+    FileMini,
+    FolderMini,
+    ISODate,
+    UserMini,
+    GroupMini,
+    MarkerPaginatedCollection,
+    SelectorItems,
+} from './core';
 
 type ID = string;
 
 type TaskCollabStatus = 'APPROVED' | 'REJECTED' | 'COMPLETED' | 'NOT_STARTED';
 
 type TaskStatus = TaskCollabStatus | 'IN_PROGRESS';
+
+type TaskCompletionRule = 'ALL_ASSIGNEES' | 'ANY_ASSIGNEE';
 
 type TaskMini = {|
     created_at: ISODate,
@@ -57,7 +67,7 @@ type TaskEditMode = 'CREATE' | 'EDIT';
 type TaskNew = {|
     assigned_to: TaskAssigneeCollection,
     completed_at?: ?ISODate,
-    completion_rule?: 'ANY_ASSIGNEE' | 'ALL_ASSIGNEES',
+    completion_rule: TaskCompletionRule,
     created_at: ISODate,
     created_by: TaskCollabCreator,
     description: string,
@@ -84,7 +94,8 @@ type TaskPayload = {
 };
 
 type TaskUpdatePayload = {
-    addedAssignees: SelectorItems,
+    addedAssignees: SelectorItems<UserMini | GroupMini>,
+    completion_rule: TaskCompletionRule,
     description: string,
     due_at?: ?string,
     id: string,
@@ -93,6 +104,7 @@ type TaskUpdatePayload = {
 
 export type {
     TaskCollabStatus,
+    TaskCompletionRule,
     TaskStatus,
     TaskCollabAssignee,
     TaskLink,

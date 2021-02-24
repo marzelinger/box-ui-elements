@@ -64,6 +64,38 @@ describe('ContentPreview', () => {
             // Sidebar should not exist
             cy.get('.bcs').should('exist');
         });
+
+        it('The sidebar should be open by default only on large screens', () => {
+            const breakpoints = [
+                [300, 'not.exist'],
+                [600, 'not.exist'],
+                [800, 'not.exist'],
+                [1000, 'not.exist'],
+                [1200, 'exist'],
+                [1500, 'exist'],
+                [2000, 'exist'],
+                [1500, 'exist'],
+                [1200, 'exist'],
+                [1000, 'not.exist'],
+                [800, 'not.exist'],
+                [600, 'not.exist'],
+                [300, 'not.exist'],
+            ];
+
+            breakpoints.forEach(([width, assertion]) => {
+                cy.viewport(width, 600);
+                cy.getByTestId('bcs-content').should(assertion);
+            });
+        });
+
+        it('The sidebar should open on a small screen if a user clicks a tab', () => {
+            cy.viewport(800, 600);
+            cy.getByTestId('bcs-content').should('not.exist');
+            cy.getByTestId('sidebaractivity').click();
+            cy.getByTestId('bcs-content').should('exist');
+            cy.getByTitle('Next File').click();
+            cy.getByTestId('bcs-content').should('exist');
+        });
     });
 
     describe('Navigation', () => {
@@ -87,7 +119,7 @@ describe('ContentPreview', () => {
 
         it('Navigation within a collection keeps sidebar closed', () => {
             // Manually closing the sidebar should remove its content
-            cy.getByTestId('sidebarskills').click();
+            cy.getByTestId('sidebartoggle').click();
             cy.getByTestId('bcs-content').should('not.exist');
 
             // Navigating between files in a collection should retain the prior closed state
@@ -136,8 +168,8 @@ describe('ContentPreview', () => {
             cy.getByTestId('bcs-content').should('exist');
             cy.getByTestId('sidebaractivity').should('have.class', 'bcs-is-selected');
 
-            // Click the activity tab to toggle it closed
-            cy.getByTestId('sidebaractivity').click();
+            // Click the sidebar toggle button to toggle it closed
+            cy.getByTestId('sidebartoggle').click();
             cy.getByTestId('bcs-content').should('not.exist');
         });
     });

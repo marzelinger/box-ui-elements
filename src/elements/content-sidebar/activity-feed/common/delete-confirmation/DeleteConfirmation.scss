@@ -1,10 +1,12 @@
 @import '../../../../../styles/variables';
+@import '../../../../../styles/mixins/overlay';
 
 .bcs-DeleteConfirmation {
     width: 212px;
 
     .overlay {
-        border-radius: $bdl-border-radius-size;
+        @include bdl-Overlay-container;
+
         padding: 20px;
     }
 }

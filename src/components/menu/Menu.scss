@@ -1,24 +1,23 @@
 @import '../../styles/variables';
+@import '../../styles/mixins/overlay';
 
 .aria-menu {
-    background: $white;
-    border: 1px solid $bdl-gray-30;
-    border-radius: 4px;
-    box-shadow: 0 2px 6px 0 fade-out($black, .9);
-    list-style: none;
+    @include bdl-Overlay-container;
+
     margin: 0;
-    padding: 8px 0;
     white-space: nowrap;
+    list-style: none;
+    background: $white;
 
     &:not(.should-outline-focus):focus {
         outline: none;
     }
 
     [role='separator'] {
-        border: 0;
-        border-top: 1px solid $bdl-gray-30;
         height: 0;
-        margin: 8px 0;
+        margin: ($bdl-grid-unit * 2) $bdl-grid-unit;
+        border: 0;
+        border-top: 1px solid $bdl-gray-10;
     }
 
     a,
@@ -32,24 +31,19 @@
 }
 
 .menu-item {
-    align-items: center;
-    color: $bdl-gray-80;
-    cursor: pointer;
-    display: flex;
-    min-height: 30px;
     position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    color: $bdl-gray;
+    cursor: pointer;
 
-    &,
-    &.btn-plain,
-    &.btn-plain:hover,
-    &.btn-plain:active {
-        padding: 5px 35px 5px 15px;
-    }
+    @include bdl-Overlay-listItemContainer;
 
     &.menu-section-header {
         color: $black;
+        font-weight: bold;
         font-size: 10px;
-        font-weight: 600;
     }
 
     &[aria-disabled] {
@@ -58,38 +52,34 @@
     }
 
     &.is-select-item {
-        padding-left: 30px;
         position: relative;
+        padding-left: 38px;
 
         /* checkmark */
         &.is-selected::before {
-            border-color: $bdl-gray-80;
+            position: absolute;
+            top: 10px;
+            left: 14px;
+            width: 6px;
+            height: 12px;
+            margin: auto;
+            border-color: $bdl-gray;
             border-style: none solid solid none;
             border-width: 2px;
-            content: '';
-            height: 12px;
-            left: 14px;
-            margin: auto;
-            position: absolute;
-            top: 8px;
             transform: rotate(45deg);
-            width: 6px;
+            content: '';
         }
     }
 
     &:not([aria-disabled]) {
         &:focus,
         &:hover {
-            background-color: $bdl-gray-10;
-            color: $bdl-gray-80;
-        }
-
-        &:focus {
-            outline: 1px dashed $bdl-gray;
+            color: $bdl-gray;
+            background-color: $bdl-gray-05;
         }
     }
 
-    svg {
-        margin-right: 10px;
+    svg:not(.menu-item-arrow) {
+        margin-right: $bdl-grid-unit * 4;
     }
 }

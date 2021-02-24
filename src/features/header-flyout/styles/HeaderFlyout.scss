@@ -1,4 +1,5 @@
 @import '../../../styles/variables';
+@import '../../../styles/mixins/overlay';
 @import './variables';
 
 .header-flyout {
@@ -8,13 +9,13 @@
 }
 
 .header-flyout-overlay {
-    height: $flyout-list-height;
     width: $flyout-list-width;
+    height: $flyout-list-height;
 
     .overlay {
-        // TODO: decide which BDL color applies here
-        border: 1px solid $bdl-gray-10;
-        padding: 2 * $flyout-header-spacer $flyout-list-padding 0;
+        @include bdl-Overlay-container;
+
+        padding: (2 * $flyout-header-spacer) $flyout-list-padding 0;
     }
 }
 
@@ -26,9 +27,9 @@
     }
 
     .flyout-list-title {
+        margin: 0;
         font-size: $flyout-title-font-size;
         line-height: $flyout-title-line-height;
-        margin: 0;
     }
 
     .flyout-list-container-body {
@@ -58,10 +59,10 @@
     }
 
     .flyout-list-container-footer {
-        border-top: 1px solid $bdl-gray-10;
+        padding: $flyout-footer-spacer 0;
         font-size: $flyout-footer-font-size;
         line-height: $flyout-footer-line-height;
-        padding: $flyout-footer-spacer 0;
+        border-top: 1px solid $bdl-gray-10;
 
         &.hidden {
             display: none;

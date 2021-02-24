@@ -10,32 +10,30 @@ import classNames from 'classnames';
 import cloneDeep from 'lodash/cloneDeep';
 import debounce from 'lodash/debounce';
 import flow from 'lodash/flow';
+import getProp from 'lodash/get';
 import noop from 'lodash/noop';
 import uniqueid from 'lodash/uniqueId';
 import CreateFolderDialog from '../common/create-folder-dialog';
 import UploadDialog from '../common/upload-dialog';
 import Header from '../common/header';
-import Pagination from '../common/pagination';
+import Pagination from '../../features/pagination';
 import SubHeader from '../common/sub-header/SubHeader';
 import makeResponsive from '../common/makeResponsive';
 import openUrlInsideIframe from '../../utils/iframe';
 import Internationalize from '../common/Internationalize';
 import API from '../../api';
+import MetadataQueryAPIHelper from '../../features/metadata-based-view/MetadataQueryAPIHelper';
 import Footer from './Footer';
 import PreviewDialog from './PreviewDialog';
 import ShareDialog from './ShareDialog';
 import RenameDialog from './RenameDialog';
 import DeleteConfirmationDialog from './DeleteConfirmationDialog';
 import Content from './Content';
+import isThumbnailReady from './utils';
 import { isFocusableElement, isInputElement, focus } from '../../utils/dom';
 import { FILE_SHARED_LINK_FIELDS_TO_FETCH, FOLDER_FIELDS_TO_FETCH } from '../../utils/fields';
 import LocalStore from '../../utils/LocalStore';
-import {
-    isFeatureEnabled,
-    withFeatureConsumer,
-    withFeatureProvider,
-    type FeatureConfig,
-} from '../common/feature-checking';
+import { withFeatureConsumer, withFeatureProvider, type FeatureConfig } from '../common/feature-checking';
 import {
     DEFAULT_HOSTNAME_UPLOAD,
     DEFAULT_HOSTNAME_API,
@@ -44,12 +42,12 @@ import {
     DEFAULT_SEARCH_DEBOUNCE,
     SORT_ASC,
     FIELD_NAME,
-    FIELD_REPRESENTATIONS,
     DEFAULT_ROOT,
     VIEW_SEARCH,
     VIEW_FOLDER,
     VIEW_ERROR,
     VIEW_RECENTS,
+    VIEW_METADATA,
     VIEW_MODE_LIST,
     TYPE_FILE,
     TYPE_WEBLINK,
@@ -59,15 +57,34 @@ import {
     DEFAULT_PAGE_SIZE,
     DEFAULT_VIEW_FILES,
     DEFAULT_VIEW_RECENTS,
+    DEFAULT_VIEW_METADATA,
     ERROR_CODE_ITEM_NAME_INVALID,
     ERROR_CODE_ITEM_NAME_TOO_LONG,
     TYPED_ID_FOLDER_PREFIX,
 } from '../../constants';
 import type { ViewMode } from '../common/flowTypes';
+import type { MetadataQuery, FieldsToShow } from '../../common/types/metadataQueries';
+import type { MetadataFieldValue } from '../../common/types/metadata';
+import type {
+    View,
+    DefaultView,
+    StringMap,
+    SortBy,
+    SortDirection,
+    Token,
+    Access,
+    Collection,
+    BoxItemPermission,
+    BoxItem,
+} from '../../common/types/core';
+
 import '../common/fonts.scss';
 import '../common/base.scss';
 import '../common/modal.scss';
 import './ContentExplorer.scss';
+
+const GRID_VIEW_MAX_COLUMNS = 7;
+const GRID_VIEW_MIN_COLUMNS = 1;
 
 type Props = {
     apiHost: string,
@@ -83,19 +100,23 @@ type Props = {
     canUpload: boolean,
     className: string,
     contentPreviewProps: ContentPreviewProps,
+    contentUploaderProps: ContentUploaderProps,
     currentFolderId?: string,
     defaultView: DefaultView,
     features: FeatureConfig,
+    fieldsToShow?: FieldsToShow,
     initialPage: number,
     initialPageSize: number,
     isLarge: boolean,
     isMedium: boolean,
     isSmall: boolean,
     isTouch: boolean,
+    isVeryLarge: boolean,
     language?: string,
     logoUrl?: string,
     measureRef?: Function,
     messages?: StringMap,
+    metadataQuery?: MetadataQuery,
     onCreate: Function,
     onDelete: Function,
     onDownload: Function,
@@ -104,6 +125,7 @@ type Props = {
     onRename: Function,
     onSelect: Function,
     onUpload: Function,
+    previewLibraryVersion: string,
     requestInterceptor?: Function,
     responseInterceptor?: Function,
     rootFolderId: string,
@@ -112,6 +134,7 @@ type Props = {
     sortBy: SortBy,
     sortDirection: SortDirection,
     staticHost: string,
+    staticPath: string,
     token: Token,
     uploadHost: string,
 };
@@ -119,9 +142,11 @@ type Props = {
 type State = {
     currentCollection: Collection,
     currentOffset: number,
+    currentPageNumber: number,
     currentPageSize: number,
     errorCode: string,
     focusedRow: number,
+    gridColumnCount: number,
     isCreateFolderModalOpen: boolean,
     isDeleteModalOpen: boolean,
     isLoading: boolean,
@@ -129,6 +154,7 @@ type State = {
     isRenameModalOpen: boolean,
     isShareModalOpen: boolean,
     isUploadModalOpen: boolean,
+    markers: Array<?string>,
     rootName: string,
     searchQuery: string,
     selected?: BoxItem,
@@ -159,6 +185,8 @@ class ContentExplorer extends Component<Props, State> {
     firstLoad: boolean = true; // Keeps track of very 1st load
 
     store: LocalStore = new LocalStore();
+
+    metadataQueryAPIHelper: MetadataQueryAPIHelper;
 
     static defaultProps = {
         rootFolderId: DEFAULT_ROOT,
@@ -192,6 +220,7 @@ class ContentExplorer extends Component<Props, State> {
         contentPreviewProps: {
             contentSidebarProps: {},
         },
+        contentUploaderProps: {},
     };
 
     /**
@@ -238,8 +267,10 @@ class ContentExplorer extends Component<Props, State> {
             currentCollection: {},
             currentOffset: initialPageSize * (initialPage - 1),
             currentPageSize: initialPageSize,
+            currentPageNumber: 0,
             errorCode: '',
             focusedRow: 0,
+            gridColumnCount: 4,
             isCreateFolderModalOpen: false,
             isDeleteModalOpen: false,
             isLoading: false,
@@ -247,6 +278,7 @@ class ContentExplorer extends Component<Props, State> {
             isRenameModalOpen: false,
             isShareModalOpen: false,
             isUploadModalOpen: false,
+            markers: [],
             rootName: '',
             searchQuery: '',
             sortBy,
@@ -288,10 +320,15 @@ class ContentExplorer extends Component<Props, State> {
         this.rootElement = ((document.getElementById(this.id): any): HTMLElement);
         this.appElement = ((this.rootElement.firstElementChild: any): HTMLElement);
 
-        if (defaultView === DEFAULT_VIEW_RECENTS) {
-            this.showRecents();
-        } else {
-            this.fetchFolder(currentFolderId);
+        switch (defaultView) {
+            case DEFAULT_VIEW_RECENTS:
+                this.showRecents();
+                break;
+            case DEFAULT_VIEW_METADATA:
+                this.showMetadataQueryResults();
+                break;
+            default:
+                this.fetchFolder(currentFolderId);
         }
     }
 
@@ -303,15 +340,82 @@ class ContentExplorer extends Component<Props, State> {
      * @inheritdoc
      * @return {void}
      */
-    componentWillReceiveProps(nextProps: Props) {
-        const { currentFolderId }: Props = nextProps;
+    componentDidUpdate({ currentFolderId: prevFolderId }: Props, prevState: State): void {
+        const { currentFolderId }: Props = this.props;
         const {
             currentCollection: { id },
-        }: State = this.state;
+        }: State = prevState;
+
+        if (prevFolderId === currentFolderId) {
+            return;
+        }
 
         if (typeof currentFolderId === 'string' && id !== currentFolderId) {
             this.fetchFolder(currentFolderId);
         }
+    }
+
+    /**
+     * Metadata queries success callback
+     *
+     * @private
+     * @param {Object} metadataQueryCollection - Metadata query response collection
+     * @return {void}
+     */
+    showMetadataQueryResultsSuccessCallback = (metadataQueryCollection: Collection): void => {
+        const { nextMarker } = metadataQueryCollection;
+        const { currentCollection, currentPageNumber, markers }: State = this.state;
+        const cloneMarkers = [...markers];
+        if (nextMarker) {
+            cloneMarkers[currentPageNumber + 1] = nextMarker;
+        }
+        this.setState({
+            currentCollection: {
+                ...currentCollection,
+                ...metadataQueryCollection,
+                percentLoaded: 100,
+            },
+            markers: cloneMarkers,
+        });
+    };
+
+    /**
+     * Queries metadata_queries/execute API and fetches the result
+     *
+     * @private
+     * @return {void}
+     */
+    showMetadataQueryResults() {
+        const { metadataQuery = {} }: Props = this.props;
+        const { currentPageNumber, markers }: State = this.state;
+        const metadataQueryClone = cloneDeep(metadataQuery);
+
+        if (currentPageNumber === 0) {
+            // Preserve the marker as part of the original query
+            markers[currentPageNumber] = metadataQueryClone.marker;
+        }
+
+        if (typeof markers[currentPageNumber] === 'string') {
+            // Set marker to the query to get next set of results
+            metadataQueryClone.marker = markers[currentPageNumber];
+        }
+
+        if (typeof metadataQueryClone.limit !== 'number') {
+            // Set limit to the query for pagination support
+            metadataQueryClone.limit = DEFAULT_PAGE_SIZE;
+        }
+        // Reset search state, the view and show busy indicator
+        this.setState({
+            searchQuery: '',
+            currentCollection: this.currentUnloadedCollection(),
+            view: VIEW_METADATA,
+        });
+        this.metadataQueryAPIHelper = new MetadataQueryAPIHelper(this.api);
+        this.metadataQueryAPIHelper.fetchMetadataQueryResults(
+            metadataQueryClone,
+            this.showMetadataQueryResultsSuccessCallback,
+            this.errorCallback,
+        );
     }
 
     /**
@@ -389,16 +493,11 @@ class ContentExplorer extends Component<Props, State> {
             this.showRecents(false);
         } else if (view === VIEW_SEARCH && searchQuery) {
             this.search(searchQuery);
+        } else if (view === VIEW_METADATA) {
+            this.showMetadataQueryResults();
         } else {
             throw new Error('Cannot refresh incompatible view!');
         }
-    };
-
-    getFolderFields = () => {
-        const { features } = this.props;
-        return isFeatureEnabled(features, 'contentExplorer.gridView.enabled')
-            ? [...FOLDER_FIELDS_TO_FETCH, FIELD_REPRESENTATIONS]
-            : FOLDER_FIELDS_TO_FETCH;
     };
 
     /**
@@ -481,7 +580,7 @@ class ContentExplorer extends Component<Props, State> {
                 this.fetchFolderSuccessCallback(collection, triggerNavigationEvent);
             },
             this.errorCallback,
-            { fields: this.getFolderFields(), forceFetch: true },
+            { fields: FOLDER_FIELDS_TO_FETCH, forceFetch: true },
         );
     };
 
@@ -544,7 +643,7 @@ class ContentExplorer extends Component<Props, State> {
         this.api
             .getSearchAPI()
             .search(id, query, currentPageSize, currentOffset, this.searchSuccessCallback, this.errorCallback, {
-                fields: this.getFolderFields(),
+                fields: FOLDER_FIELDS_TO_FETCH,
                 forceFetch: true,
             });
     }, DEFAULT_SEARCH_DEBOUNCE);
@@ -640,7 +739,7 @@ class ContentExplorer extends Component<Props, State> {
                 this.recentsSuccessCallback(collection, triggerNavigationEvent);
             },
             this.errorCallback,
-            { fields: this.getFolderFields(), forceFetch: true },
+            { fields: FOLDER_FIELDS_TO_FETCH, forceFetch: true },
         );
     }
 
@@ -746,29 +845,32 @@ class ContentExplorer extends Component<Props, State> {
      * @return {void}
      */
     async updateCollection(collection: Collection, selectedItem: ?BoxItem, callback: Function = noop): Object {
-        const { features } = this.props;
         const { items = [] } = collection;
+        const fileAPI = this.api.getFileAPI(false);
         const newCollection: Collection = { ...collection };
         const selectedId = selectedItem ? selectedItem.id : null;
         let newSelectedItem: ?BoxItem;
 
-        const isGridViewEnabled = isFeatureEnabled(features, 'contentExplorer.gridView.enabled');
+        const itemThumbnails = await Promise.all(
+            items.map(item => {
+                return item.type === TYPE_FILE ? fileAPI.getThumbnailUrl(item) : null;
+            }),
+        );
 
-        let itemThumbnails = [];
-        if (isGridViewEnabled) {
-            const fileAPI = this.api.getFileAPI(false);
-            itemThumbnails = await Promise.all(items.map(item => fileAPI.getThumbnailUrl(item)));
-        }
+        newCollection.items = items.map((item, index) => {
+            const isSelected = item.id === selectedId;
+            const currentItem = isSelected ? selectedItem : item;
+            const thumbnailUrl = itemThumbnails[index];
 
-        newCollection.items = items.map((obj, index) => {
-            const isSelected = obj.id === selectedId;
-            const currentItem = isSelected ? selectedItem : obj;
-            const thumbnailUrl = isGridViewEnabled ? itemThumbnails[index] : null;
             const newItem = {
                 ...currentItem,
                 selected: isSelected,
                 thumbnailUrl,
             };
+
+            if (item.type === TYPE_FILE && thumbnailUrl && !isThumbnailReady(newItem)) {
+                this.attemptThumbnailGeneration(newItem);
+            }
 
             // Only if selectedItem is in the current collection do we want to set selected state
             if (isSelected) {
@@ -779,6 +881,45 @@ class ContentExplorer extends Component<Props, State> {
         });
         this.setState({ currentCollection: newCollection, selected: newSelectedItem }, callback);
     }
+
+    /**
+     * Attempts to generate a thumbnail for the given item and assigns the
+     * item its thumbnail url if successful
+     *
+     * @param {BoxItem} item - item to generate thumbnail for
+     * @return {Promise<void>}
+     */
+    attemptThumbnailGeneration = async (item: BoxItem): Promise<void> => {
+        const entries = getProp(item, 'representations.entries');
+        const representation = getProp(entries, '[0]');
+
+        if (representation) {
+            const updatedRepresentation = await this.api.getFileAPI(false).generateRepresentation(representation);
+            if (updatedRepresentation !== representation) {
+                this.updateItemInCollection({
+                    ...cloneDeep(item),
+                    representations: {
+                        entries: [updatedRepresentation, ...entries.slice(1)],
+                    },
+                });
+            }
+        }
+    };
+
+    /**
+     * Update item in this.state.currentCollection
+     *
+     * @param {BoxItem} newItem - item with updated properties
+     * @return {void}
+     */
+    updateItemInCollection = (newItem: BoxItem): void => {
+        const { currentCollection } = this.state;
+        const { items = [] } = currentCollection;
+        const newCollection = { ...currentCollection };
+
+        newCollection.items = items.map(item => (item.id === newItem.id ? newItem : item));
+        this.setState({ currentCollection: newCollection });
+    };
 
     /**
      * Selects or unselects an item
@@ -1116,6 +1257,9 @@ class ContentExplorer extends Component<Props, State> {
                     .getFile(id, this.handleSharedLinkSuccess, noop, { fields: FILE_SHARED_LINK_FIELDS_TO_FETCH });
                 break;
             case TYPE_WEBLINK:
+                this.api
+                    .getWebLinkAPI()
+                    .getWeblink(id, this.handleSharedLinkSuccess, noop, { fields: FILE_SHARED_LINK_FIELDS_TO_FETCH });
                 break;
             default:
                 throw new Error('Unknown Type');
@@ -1272,7 +1416,7 @@ class ContentExplorer extends Component<Props, State> {
     };
 
     /**
-     * Handle pagination changes
+     * Handle pagination changes for offset based pagination
      *
      * @param {number} newOffset - the new page offset value
      */
@@ -1280,11 +1424,44 @@ class ContentExplorer extends Component<Props, State> {
         this.setState({ currentOffset: newOffset }, this.refreshCollection);
     };
 
-    getViewMode = (): ViewMode => {
-        const { features }: Props = this.props;
-        const viewModePreference = this.store.getItem(localStoreViewMode);
-        const isGridViewEnabled = isFeatureEnabled(features, 'contentExplorer.gridView.enabled');
-        return isGridViewEnabled && viewModePreference ? viewModePreference : VIEW_MODE_LIST;
+    /**
+     * Handle pagination changes for marker based pagination
+     * @param {number} newOffset - the new page offset value
+     */
+    markerBasedPaginate = (newOffset: number) => {
+        const { currentPageNumber } = this.state;
+        this.setState(
+            {
+                currentPageNumber: currentPageNumber + newOffset, // newOffset could be negative
+            },
+            this.refreshCollection,
+        );
+    };
+
+    /**
+     * Get the current viewMode, checking local store if applicable
+     *
+     * @return {ViewMode}
+     */
+    getViewMode = (): ViewMode => this.store.getItem(localStoreViewMode) || VIEW_MODE_LIST;
+
+    /**
+     * Get the maximum number of grid view columns based on the current width of the
+     * content explorer.
+     *
+     * @return {number}
+     */
+    getMaxNumberOfGridViewColumnsForWidth = (): number => {
+        const { isSmall, isMedium, isLarge } = this.props;
+        let maxWidthColumns = GRID_VIEW_MAX_COLUMNS;
+        if (isSmall) {
+            maxWidthColumns = 1;
+        } else if (isMedium) {
+            maxWidthColumns = 3;
+        } else if (isLarge) {
+            maxWidthColumns = 5;
+        }
+        return maxWidthColumns;
     };
 
     /**
@@ -1294,12 +1471,72 @@ class ContentExplorer extends Component<Props, State> {
      * @return {void}
      */
     changeViewMode = (viewMode: ViewMode): void => {
-        const { features }: Props = this.props;
+        this.store.setItem(localStoreViewMode, viewMode);
+        this.forceUpdate();
+    };
 
-        if (isFeatureEnabled(features, 'contentExplorer.gridView.enabled')) {
-            this.store.setItem(localStoreViewMode, viewMode);
-            this.forceUpdate();
-        }
+    /**
+     * Callback for when value of GridViewSlider changes
+     *
+     * @param {number} sliderValue - value of slider
+     * @return {void}
+     */
+    onGridViewSliderChange = (sliderValue: number): void => {
+        // need to do this calculation since lowest value of grid view slider
+        // means highest number of columns
+        const gridColumnCount = GRID_VIEW_MAX_COLUMNS - sliderValue + 1;
+        this.setState({ gridColumnCount });
+    };
+
+    /**
+     * Function to update metadata field value in metadata based view
+     * @param {BoxItem} item - file item whose metadata is being changed
+     * @param {string} field - metadata template field name
+     * @param {MetadataFieldValue} oldValue - current value
+     * @param {MetadataFieldValue} newVlaue - new value the field to be updated to
+     */
+
+    updateMetadata = (
+        item: BoxItem,
+        field: string,
+        oldValue: ?MetadataFieldValue,
+        newValue: ?MetadataFieldValue,
+    ): void => {
+        this.metadataQueryAPIHelper.updateMetadata(
+            item,
+            field,
+            oldValue,
+            newValue,
+            () => {
+                this.updateMetadataSuccessCallback(item, field, newValue);
+            },
+            this.errorCallback,
+        );
+    };
+
+    updateMetadataSuccessCallback = (item: BoxItem, field: string, newValue: ?MetadataFieldValue): void => {
+        const { currentCollection }: State = this.state;
+        const { items = [], nextMarker } = currentCollection;
+        const updatedItems = items.map(collectionItem => {
+            const clonedItem = cloneDeep(collectionItem);
+            if (item.id === clonedItem.id) {
+                const fields = getProp(clonedItem, 'metadata.enterprise.fields', []);
+                fields.forEach(itemField => {
+                    if (itemField.key.split('.').pop() === field) {
+                        itemField.value = newValue; // set updated metadata value to correct item in currentCollection
+                    }
+                });
+            }
+            return clonedItem;
+        });
+
+        this.setState({
+            currentCollection: {
+                items: updatedItems,
+                nextMarker,
+                percentLoaded: 100,
+            },
+        });
     };
 
     /**
@@ -1311,54 +1548,62 @@ class ContentExplorer extends Component<Props, State> {
      */
     render() {
         const {
-            language,
-            messages,
-            rootFolderId,
-            logoUrl,
-            canUpload,
-            canCreateNewFolder,
-            canSetShareAccess,
-            canDelete,
-            canRename,
-            canDownload,
-            canPreview,
-            canShare,
-            token,
-            sharedLink,
-            sharedLinkPassword,
             apiHost,
             appHost,
-            staticHost,
-            uploadHost,
-            isSmall,
-            isMedium,
-            isTouch,
+            canCreateNewFolder,
+            canDelete,
+            canDownload,
+            canPreview,
+            canRename,
+            canSetShareAccess,
+            canShare,
+            canUpload,
             className,
+            contentPreviewProps,
+            contentUploaderProps,
+            defaultView,
+            isMedium,
+            isSmall,
+            isTouch,
+            language,
+            logoUrl,
             measureRef,
-            onPreview,
+            messages,
+            fieldsToShow,
             onDownload,
+            onPreview,
             onUpload,
             requestInterceptor,
             responseInterceptor,
-            contentPreviewProps,
+            rootFolderId,
+            sharedLink,
+            sharedLinkPassword,
+            staticHost,
+            staticPath,
+            previewLibraryVersion,
+            token,
+            uploadHost,
         }: Props = this.props;
 
         const {
-            view,
-            rootName,
             currentCollection,
+            currentPageNumber,
             currentPageSize,
-            searchQuery,
+            errorCode,
+            focusedRow,
+            gridColumnCount,
+            isCreateFolderModalOpen,
             isDeleteModalOpen,
+            isLoading,
+            isPreviewModalOpen,
             isRenameModalOpen,
             isShareModalOpen,
             isUploadModalOpen,
-            isPreviewModalOpen,
-            isCreateFolderModalOpen,
+            markers,
+            rootName,
+            searchQuery,
             selected,
-            isLoading,
-            errorCode,
-            focusedRow,
+            view,
         }: State = this.state;
 
         const { id, offset, permissions, totalCount }: Collection = currentCollection;
@@ -1366,8 +1611,14 @@ class ContentExplorer extends Component<Props, State> {
         const styleClassName = classNames('be bce', className);
         const allowUpload: boolean = canUpload && !!can_upload;
         const allowCreate: boolean = canCreateNewFolder && !!can_upload;
+        const isDefaultViewMetadata: boolean = defaultView === DEFAULT_VIEW_METADATA;
+        const isErrorView: boolean = view === VIEW_ERROR;
 
         const viewMode = this.getViewMode();
+        const maxGridColumnCount = this.getMaxNumberOfGridViewColumnsForWidth();
+
+        const hasNextMarker: boolean = !!markers[currentPageNumber + 1];
+        const hasPreviousMarker: boolean = currentPageNumber === 1 || !!markers[currentPageNumber - 1];
 
         /* eslint-disable jsx-a11y/no-static-element-interactions */
         /* eslint-disable jsx-a11y/no-noninteractive-tabindex */
@@ -1375,62 +1626,79 @@ class ContentExplorer extends Component<Props, State> {
             <Internationalize language={language} messages={messages}>
                 <div id={this.id} className={styleClassName} ref={measureRef} data-testid="content-explorer">
                     <div className="be-app-element" onKeyDown={this.onKeyDown} tabIndex={0}>
-                        <Header
-                            view={view}
-                            isSmall={isSmall}
-                            searchQuery={searchQuery}
-                            logoUrl={logoUrl}
-                            onSearch={this.search}
-                        />
-                        <SubHeader
-                            view={view}
-                            viewMode={viewMode}
-                            rootId={rootFolderId}
-                            isSmall={isSmall}
-                            rootName={rootName}
-                            currentCollection={currentCollection}
-                            canUpload={allowUpload}
-                            canCreateNewFolder={allowCreate}
-                            onUpload={this.upload}
-                            onCreate={this.createFolder}
-                            onItemClick={this.fetchFolder}
-                            onSortChange={this.sort}
-                            onViewModeChange={this.changeViewMode}
-                        />
+                        {!isDefaultViewMetadata && (
+                            <>
+                                <Header
+                                    view={view}
+                                    isSmall={isSmall}
+                                    searchQuery={searchQuery}
+                                    logoUrl={logoUrl}
+                                    onSearch={this.search}
+                                />
+                                <SubHeader
+                                    view={view}
+                                    viewMode={viewMode}
+                                    rootId={rootFolderId}
+                                    isSmall={isSmall}
+                                    rootName={rootName}
+                                    currentCollection={currentCollection}
+                                    canUpload={allowUpload}
+                                    canCreateNewFolder={allowCreate}
+                                    gridColumnCount={gridColumnCount}
+                                    gridMaxColumns={GRID_VIEW_MAX_COLUMNS}
+                                    gridMinColumns={GRID_VIEW_MIN_COLUMNS}
+                                    maxGridColumnCountForWidth={maxGridColumnCount}
+                                    onUpload={this.upload}
+                                    onCreate={this.createFolder}
+                                    onGridViewSliderChange={this.onGridViewSliderChange}
+                                    onItemClick={this.fetchFolder}
+                                    onSortChange={this.sort}
+                                    onViewModeChange={this.changeViewMode}
+                                />
+                            </>
+                        )}
                         <Content
-                            view={view}
-                            viewMode={viewMode}
-                            rootId={rootFolderId}
-                            isSmall={isSmall}
-                            isMedium={isMedium}
-                            isTouch={isTouch}
-                            rootElement={this.rootElement}
-                            focusedRow={focusedRow}
+                            canDelete={canDelete}
+                            canDownload={canDownload}
+                            canPreview={canPreview}
+                            canRename={canRename}
                             canSetShareAccess={canSetShareAccess}
                             canShare={canShare}
-                            canPreview={canPreview}
-                            canDelete={canDelete}
-                            canRename={canRename}
-                            canDownload={canDownload}
                             currentCollection={currentCollection}
-                            tableRef={this.tableRef}
-                            onItemSelect={this.select}
+                            focusedRow={focusedRow}
+                            gridColumnCount={Math.min(gridColumnCount, maxGridColumnCount)}
+                            isMedium={isMedium}
+                            isSmall={isSmall}
+                            isTouch={isTouch}
+                            fieldsToShow={fieldsToShow}
                             onItemClick={this.onItemClick}
                             onItemDelete={this.delete}
                             onItemDownload={this.download}
-                            onItemRename={this.rename}
-                            onItemShare={this.share}
                             onItemPreview={this.preview}
+                            onItemRename={this.rename}
+                            onItemSelect={this.select}
+                            onItemShare={this.share}
+                            onMetadataUpdate={this.updateMetadata}
                             onSortChange={this.sort}
+                            rootElement={this.rootElement}
+                            rootId={rootFolderId}
+                            tableRef={this.tableRef}
+                            view={view}
+                            viewMode={viewMode}
                         />
-                        <Footer>
-                            <Pagination
-                                offset={offset}
-                                onChange={this.paginate}
-                                pageSize={currentPageSize}
-                                totalCount={totalCount}
-                            />
-                        </Footer>
+                        {!isErrorView && (
+                            <Footer>
+                                <Pagination
+                                    hasNextMarker={hasNextMarker}
+                                    hasPrevMarker={hasPreviousMarker}
+                                    offset={offset}
+                                    onOffsetChange={this.paginate}
+                                    pageSize={currentPageSize}
+                                    totalCount={totalCount}
+                                    onMarkerBasedPageChange={this.markerBasedPaginate}
+                                />
+                            </Footer>
+                        )}
                     </div>
                     {allowUpload && !!this.appElement ? (
                         <UploadDialog
@@ -1445,6 +1713,7 @@ class ContentExplorer extends Component<Props, State> {
                             parentElement={this.rootElement}
                             appElement={this.appElement}
                             onUpload={onUpload}
+                            contentUploaderProps={contentUploaderProps}
                             requestInterceptor={requestInterceptor}
                             responseInterceptor={responseInterceptor}
                         />
@@ -1512,6 +1781,8 @@ class ContentExplorer extends Component<Props, State> {
                             apiHost={apiHost}
                             appHost={appHost}
                             staticHost={staticHost}
+                            staticPath={staticPath}
+                            previewLibraryVersion={previewLibraryVersion}
                             sharedLink={sharedLink}
                             sharedLinkPassword={sharedLinkPassword}
                             contentPreviewProps={contentPreviewProps}

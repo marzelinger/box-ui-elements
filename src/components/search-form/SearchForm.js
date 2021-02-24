@@ -4,8 +4,8 @@ import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import omit from 'lodash/omit';
 
-import IconClear from '../../icons/general/IconClear';
-import IconSearch from '../../icons/general/IconSearch';
+import ClearBadge16 from '../../icon/fill/ClearBadge16';
+import Search16 from '../../icon/fill/Search16';
 
 import makeLoadable from '../loading-indicator/makeLoadable';
 
@@ -71,12 +71,16 @@ class SearchForm extends React.Component<Props, State> {
         isEmpty: true,
     };
 
-    componentWillReceiveProps(nextProps) {
-        const { value } = nextProps;
-        // update state if input is controlled and becomes empty
-        if (typeof value !== 'undefined' && !value.trim()) {
-            this.setState({ isEmpty: true });
+    static getDerivedStateFromProps(props: Props): any {
+        const { value } = props;
+
+        if (value && !!value.trim()) {
+            return {
+                isEmpty: true,
+            };
         }
+
+        return null;
     }
 
     onClearHandler = (event: SyntheticEvent<>) => {
@@ -153,7 +157,7 @@ class SearchForm extends React.Component<Props, State> {
                     className="action-button search-button"
                     title={formatMessage(messages.searchButtonTitle)}
                 >
-                    <IconSearch />
+                    <Search16 />
                 </button>
                 <button
                     className="action-button clear-button"
@@ -161,7 +165,7 @@ class SearchForm extends React.Component<Props, State> {
                     title={formatMessage(messages.clearButtonTitle)}
                     type="button"
                 >
-                    <IconClear />
+                    <ClearBadge16 />
                 </button>
             </div>
         );

@@ -20,14 +20,10 @@ describe('ContentSidebar', () => {
             });
         });
 
-        it('should toggle sidebar content when a user toggles a sidebar tab', () => {
+        it('should remain sidebar open when a user clicks sidebar tab', () => {
             // Sidebar should be open by default
             cy.getByTestId('bcs-content').should('exist');
             cy.getByTestId('sidebarskills').should('have.class', 'bcs-is-selected');
-
-            cy.getByTestId('sidebarskills').click();
-            cy.getByTestId('sidebarskills').should('not.have.class', 'bcs-is-selected');
-            cy.getByTestId('bcs-content').should('not.exist');
 
             cy.getByTestId('sidebarskills').click();
             cy.getByTestId('sidebarskills').should('have.class', 'bcs-is-selected');
@@ -42,6 +38,25 @@ describe('ContentSidebar', () => {
             cy.getByTestId('sidebaractivity').click();
             cy.getByTestId('sidebaractivity').should('have.class', 'bcs-is-selected');
             cy.getByTestId('sidebarskills').should('not.have.class', 'bcs-is-selected');
+        });
+
+        it('should switch the sidebar panel when a user navigates between tabs using keyboard', () => {
+            cy.getByTestId('bcs-content').should('exist');
+            cy.getByTestId('sidebarskills').should('have.class', 'bcs-is-selected');
+
+            cy.getByTestId('sidebarskills').trigger('keydown', { key: 'ArrowDown' });
+            cy.getByTestId('sidebarskills').should('not.have.class', 'bcs-is-selected');
+            cy.getByTestId('sidebarmetadata').should('have.class', 'bcs-is-selected');
+            cy.focused().should('have.attr', 'data-testid', 'sidebarmetadata');
+
+            cy.getByTestId('sidebarskills').trigger('keydown', { key: 'ArrowUp' });
+            cy.getByTestId('sidebarskills').should('have.class', 'bcs-is-selected');
+            cy.getByTestId('sidebarmetadata').should('not.have.class', 'bcs-is-selected');
+            cy.focused().should('have.attr', 'data-testid', 'sidebarskills');
+
+            cy.getByTestId('sidebarskills').trigger('keydown', { key: 'ArrowRight' });
+            cy.getByTestId('sidebarskills').should('have.class', 'bcs-is-selected');
+            cy.focused().should('have.attr', 'data-testid', 'sidebarskills');
         });
 
         it('should toggle sidebar content when a user clicks the toggle sidebar button', () => {
@@ -73,8 +88,10 @@ describe('ContentSidebar', () => {
 
     describe('version history', () => {
         beforeEach(() => {
+            cy.server();
+            cy.route('GET', '**/files/*', 'fixture:content-sidebar/restored-file.json');
+
             helpers.load({
-                features: { versions: true },
                 fileId: Cypress.env('FILE_ID_DOC_VERSIONED'),
             });
         });
@@ -95,6 +112,17 @@ describe('ContentSidebar', () => {
                 .contains('Back')
                 .click();
             cy.get('@versionHistory').should('not.exist');
+        });
+
+        it('should display the current version as restored', () => {
+            cy.getByTestId('version').within($versionItem => {
+                cy.wrap($versionItem).contains('promoted v6 to v10');
+            });
+            cy.getByTestId('sidebardetails').click();
+            cy.getByTestId('versionhistory').click();
+
+            cy.contains('[data-testid="bcs-content"]', 'Version History').as('versionHistory');
+            cy.get('@versionHistory').contains('Restored by');
         });
     });
 

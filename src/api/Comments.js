@@ -15,6 +15,8 @@ import {
     ERROR_CODE_DELETE_COMMENT,
     ERROR_CODE_FETCH_COMMENTS,
 } from '../constants';
+import type { ElementsXhrError, ElementsErrorCallback } from '../common/types/api';
+import type { BoxItem, BoxItemPermission } from '../common/types/core';
 
 class Comments extends OffsetBasedAPI {
     /**
@@ -151,6 +153,7 @@ class Comments extends OffsetBasedAPI {
         file,
         commentId,
         message,
+        tagged_message,
         permissions,
         successCallback,
         errorCallback,
@@ -161,6 +164,7 @@ class Comments extends OffsetBasedAPI {
         message: string,
         permissions: BoxItemPermission,
         successCallback: Function,
+        tagged_message?: string,
     }): void {
         this.errorCode = ERROR_CODE_UPDATE_COMMENT;
         const { id = '' } = file;
@@ -173,7 +177,7 @@ class Comments extends OffsetBasedAPI {
         }
 
         const requestData = {
-            data: { message },
+            data: { message, tagged_message },
         };
 
         this.put({

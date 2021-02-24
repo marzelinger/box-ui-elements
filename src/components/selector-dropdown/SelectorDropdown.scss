@@ -14,23 +14,25 @@
         width: 100%;
 
         .SelectorDropdown-divider {
-            border: 0;
-            border-bottom: 1px solid $bdl-gray-30;
             display: block;
-            height: 1px;
-            margin: 5px 15px;
-            pointer-events: none;
             width: calc(100% - 30px);
+            height: 1px;
+            margin: $bdl-grid-unit ($bdl-grid-unit * 4);
+            border: 0;
+            border-bottom: 1px solid $bdl-gray-10;
+            pointer-events: none;
         }
 
         .SelectorDropdown-title {
-            color: $bdl-gray-30;
-            font-size: 12px;
+            margin: ($bdl-grid-unit * 4);
+            margin-bottom: $bdl-grid-unit * 2;
+            color: $bdl-gray-62;
             font-weight: bold;
+            font-size: 11px;
             line-height: 1;
-            margin: 5px 15px;
-            pointer-events: none;
+            letter-spacing: .6px;
             text-transform: uppercase;
+            pointer-events: none;
         }
     }
 

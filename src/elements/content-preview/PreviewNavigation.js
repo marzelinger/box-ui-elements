@@ -6,10 +6,13 @@
 
 import * as React from 'react';
 import { injectIntl } from 'react-intl';
+import { Route } from 'react-router-dom';
+import type { InjectIntlProvidedProps } from 'react-intl';
 import IconNavigateLeft from '../../icons/general/IconNavigateLeft';
 import IconNavigateRight from '../../icons/general/IconNavigateRight';
 import PlainButton from '../../components/plain-button/PlainButton';
 import messages from '../common/messages';
+import type { BoxItem } from '../../common/types/core';
 
 type Props = {
     collection: Array<string | BoxItem>,
@@ -27,28 +30,42 @@ const PreviewNavigation = ({ collection = [], currentIndex, intl, onNavigateLeft
     }
 
     return (
-        <React.Fragment>
-            {hasLeftNavigation && (
-                <PlainButton
-                    className="bcpr-navigate-left"
-                    onClick={onNavigateLeft}
-                    title={intl.formatMessage(messages.previousFile)}
-                    type="button"
-                >
-                    <IconNavigateLeft />
-                </PlainButton>
+        <Route path={['/:activeTab/:deeplink', '/']}>
+            {({ match, history }) => (
+                <>
+                    {hasLeftNavigation && (
+                        <PlainButton
+                            className="bcpr-navigate-left"
+                            onClick={() => {
+                                if (match.params.deeplink) {
+                                    history.push(`/${match.params.activeTab}`);
+                                }
+                                onNavigateLeft();
+                            }}
+                            title={intl.formatMessage(messages.previousFile)}
+                            type="button"
+                        >
+                            <IconNavigateLeft />
+                        </PlainButton>
+                    )}
+                    {hasRightNavigation && (
+                        <PlainButton
+                            className="bcpr-navigate-right"
+                            onClick={() => {
+                                if (match.params.deeplink) {
+                                    history.push(`/${match.params.activeTab}`);
+                                }
+                                onNavigateRight();
+                            }}
+                            title={intl.formatMessage(messages.nextFile)}
+                            type="button"
+                        >
+                            <IconNavigateRight />
+                        </PlainButton>
+                    )}
+                </>
             )}
-            {hasRightNavigation && (
-                <PlainButton
-                    className="bcpr-navigate-right"
-                    onClick={onNavigateRight}
-                    title={intl.formatMessage(messages.nextFile)}
-                    type="button"
-                >
-                    <IconNavigateRight />
-                </PlainButton>
-            )}
-        </React.Fragment>
+        </Route>
     );
 };
 

@@ -32,6 +32,10 @@ type Props = {
     dropdownScrollBoundarySelector?: string,
     /** Error message */
     error?: React.Node,
+    /** Called on pill render to get a specific class name to use for a particular option. Note: Only has effect when showRoundedPills is true. */
+    getPillClassName?: (option: Option) => string,
+    /** Function to retrieve the image URL associated with a pill */
+    getPillImageUrl?: (data: { id: string, [key: string]: any }) => string | Promise<?string>,
     /** Passed in by `SelectorDropdown` for accessibility */
     inputProps: Object,
     /** Input label */
@@ -62,6 +66,10 @@ type Props = {
     shouldClearUnmatchedInput?: boolean,
     /** Determines whether or not the first item is highlighted automatically when the dropdown opens */
     shouldSetActiveItemOnOpen?: boolean,
+    /** show avatars (uses showRoundedPills) */
+    showAvatars?: boolean,
+    /** Use rounded style for pills */
+    showRoundedPills?: boolean,
     /** Array of suggested collaborators */
     suggestedPillsData?: Array<Object>,
     /** String decribes the datapoint to filter by so that items in the form are not shown in suggestions. */
@@ -99,8 +107,7 @@ class PillSelectorDropdown extends React.Component<Props, State> {
 
     state = { inputValue: '', isInCompositionMode: false };
 
-    parsePills = () => {
-        const { inputValue } = this.state;
+    parsePills = (inputValue: string) => {
         const { allowInvalidPills, parseItems, validator } = this.props;
         let pills = parseItems ? parseItems(inputValue) : parseCSV(inputValue);
 
@@ -124,7 +131,7 @@ class PillSelectorDropdown extends React.Component<Props, State> {
         return normalizedPills;
     };
 
-    addPillsFromInput = () => {
+    addPillsFromInput = (inputValue: string) => {
         const {
             allowCustomPills,
             onPillCreate,
@@ -133,7 +140,6 @@ class PillSelectorDropdown extends React.Component<Props, State> {
             shouldClearUnmatchedInput,
             validateForError,
         } = this.props;
-        const { inputValue } = this.state;
 
         // Do nothing if custom pills are not allowed
         if (!allowCustomPills) {
@@ -141,7 +147,7 @@ class PillSelectorDropdown extends React.Component<Props, State> {
         }
 
         // Parse pills from input
-        const pills = this.parsePills();
+        const pills = this.parsePills(inputValue);
 
         // "Select" the pills
         if (pills.length > 0) {
@@ -165,7 +171,8 @@ class PillSelectorDropdown extends React.Component<Props, State> {
 
     handleBlur = (event: SyntheticInputEvent<HTMLInputElement>) => {
         const { onBlur } = this.props;
-        this.addPillsFromInput();
+        const { inputValue } = this.state;
+        this.addPillsFromInput(inputValue);
         onBlur(event);
     };
 
@@ -177,21 +184,20 @@ class PillSelectorDropdown extends React.Component<Props, State> {
     };
 
     handleEnter = (event: SyntheticEvent<>) => {
-        const { isInCompositionMode } = this.state;
+        const { isInCompositionMode, inputValue } = this.state;
         if (!isInCompositionMode) {
             event.preventDefault();
-            this.addPillsFromInput();
+            this.addPillsFromInput(inputValue);
         }
     };
 
-    handlePaste = () => {
-        /**
-         * NOTE (ishay): setTimeout is necessary because
-         * otherwise addPillsFromInput gets triggered as soon
-         * as the user "paste's", but before the inputValue
-         * is actually updated.
-         */
-        setTimeout(this.addPillsFromInput, 0);
+    handlePaste = (event: SyntheticClipboardEvent<HTMLInputElement>) => {
+        event.preventDefault();
+
+        const inputValue: string = event.clipboardData.getData('text');
+        this.setState({ inputValue });
+        this.props.onInput(inputValue, event);
+        this.addPillsFromInput(inputValue);
     };
 
     handleSelect = (index: number, event: SyntheticEvent<>) => {
@@ -230,6 +236,8 @@ class PillSelectorDropdown extends React.Component<Props, State> {
             dividerIndex,
             dropdownScrollBoundarySelector,
             error,
+            getPillClassName,
+            getPillImageUrl,
             inputProps,
             label,
             onRemove,
@@ -237,6 +245,8 @@ class PillSelectorDropdown extends React.Component<Props, State> {
             overlayTitle,
             placeholder,
             selectedOptions,
+            showAvatars,
+            showRoundedPills,
             suggestedPillsData,
             suggestedPillsFilter,
             suggestedPillsTitle,
@@ -245,16 +255,16 @@ class PillSelectorDropdown extends React.Component<Props, State> {
         } = this.props;
 
         return (
-            <SelectorDropdown
-                className={classNames('pill-selector-wrapper', className)}
-                dividerIndex={dividerIndex}
-                onEnter={this.handleEnter}
-                onSelect={this.handleSelect}
-                overlayTitle={overlayTitle}
-                scrollBoundarySelector={dropdownScrollBoundarySelector}
-                shouldSetActiveItemOnOpen={shouldSetActiveItemOnOpen}
-                selector={
-                    <Label text={label}>
+            <Label text={label}>
+                <SelectorDropdown
+                    className={classNames('bdl-PillSelectorDropdown', 'pill-selector-wrapper', className)}
+                    dividerIndex={dividerIndex}
+                    onEnter={this.handleEnter}
+                    onSelect={this.handleSelect}
+                    overlayTitle={overlayTitle}
+                    scrollBoundarySelector={dropdownScrollBoundarySelector}
+                    shouldSetActiveItemOnOpen={shouldSetActiveItemOnOpen}
+                    selector={
                         <PillSelector
                             onChange={noop} // fix console error
                             onCompositionEnd={this.handleCompositionEnd}
@@ -263,6 +273,8 @@ class PillSelectorDropdown extends React.Component<Props, State> {
                             allowInvalidPills={allowInvalidPills}
                             disabled={disabled}
                             error={error}
+                            getPillClassName={getPillClassName}
+                            getPillImageUrl={getPillImageUrl}
                             onBlur={this.handleBlur}
                             onInput={this.handleInput}
                             onPaste={this.handlePaste}
@@ -270,17 +282,19 @@ class PillSelectorDropdown extends React.Component<Props, State> {
                             onSuggestedPillAdd={onSuggestedPillAdd}
                             placeholder={placeholder}
                             selectedOptions={selectedOptions}
+                            showRoundedPills={showRoundedPills}
+                            showAvatars={showAvatars && showRoundedPills}
                             suggestedPillsData={suggestedPillsData}
                             suggestedPillsFilter={suggestedPillsFilter}
                             suggestedPillsTitle={suggestedPillsTitle}
                             validator={validator}
                             value={this.state.inputValue}
                         />
-                    </Label>
-                }
-            >
-                {children}
-            </SelectorDropdown>
+                    }
+                >
+                    {children}
+                </SelectorDropdown>
+            </Label>
         );
     }
 }

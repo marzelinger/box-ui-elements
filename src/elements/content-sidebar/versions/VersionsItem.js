@@ -5,15 +5,23 @@
  */
 
 import * as React from 'react';
-import getProp from 'lodash/get';
 import { FormattedMessage } from 'react-intl';
 import messages from './messages';
+import selectors from '../../common/selectors/version';
 import sizeUtil from '../../../utils/size';
 import VersionsItemActions from './VersionsItemActions';
 import VersionsItemButton from './VersionsItemButton';
 import VersionsItemBadge from './VersionsItemBadge';
+import VersionsItemRetention from './VersionsItemRetention';
 import { ReadableTime } from '../../../components/time';
-import { VERSION_DELETE_ACTION, VERSION_RESTORE_ACTION, VERSION_UPLOAD_ACTION } from '../../../constants';
+import {
+    FILE_REQUEST_NAME,
+    VERSION_DELETE_ACTION,
+    VERSION_PROMOTE_ACTION,
+    VERSION_RESTORE_ACTION,
+    VERSION_UPLOAD_ACTION,
+} from '../../../constants';
+import type { BoxItemVersion } from '../../../common/types/core';
 import type { VersionActionCallback } from './flowTypes';
 import './VersionsItem.scss';
 
@@ -35,11 +43,11 @@ type Props = {
 const ACTION_MAP = {
     [VERSION_DELETE_ACTION]: messages.versionDeletedBy,
     [VERSION_RESTORE_ACTION]: messages.versionRestoredBy,
+    [VERSION_PROMOTE_ACTION]: messages.versionPromotedBy,
     [VERSION_UPLOAD_ACTION]: messages.versionUploadedBy,
 };
+const FILE_EXTENSIONS_OFFICE = ['xlsb', 'xlsm', 'xlsx'];
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
-
-const getActionMessage = action => ACTION_MAP[action] || ACTION_MAP[VERSION_UPLOAD_ACTION];
 
 const VersionsItem = ({
     fileId,
@@ -56,28 +64,43 @@ const VersionsItem = ({
     versionLimit,
 }: Props) => {
     const {
-        action = VERSION_UPLOAD_ACTION,
         created_at: createdAt,
+        extension,
         id: versionId,
         is_download_available,
-        modified_by: modifiedBy,
         permissions = {},
+        restored_at: restoredAt,
+        retention,
         size,
+        trashed_at: trashedAt,
         version_number: versionNumber,
+        version_promoted: versionPromoted,
     } = version;
     const { can_delete, can_download, can_preview, can_upload } = permissions;
+    const { applied_at: retentionAppliedAt, disposition_at: retentionDispositionAt } = retention || {};
+    const retentionDispositionAtDate = retentionDispositionAt && new Date(retentionDispositionAt);
 
     // Version info helpers
-    const versionSize = sizeUtil(size);
-    const versionTimestamp = createdAt && new Date(createdAt).getTime();
-    const versionUserName = getProp(modifiedBy, 'name', <FormattedMessage {...messages.versionUserUnknown} />);
+    const versionAction = selectors.getVersionAction(version);
     const versionInteger = versionNumber ? parseInt(versionNumber, 10) : 1;
-
+    const versionTime = restoredAt || trashedAt || createdAt;
+    const versionTimestamp = versionTime && new Date(versionTime).getTime();
+    const versionUserName = selectors.getVersionUser(version).name || (
+        <FormattedMessage {...messages.versionUserUnknown} />
+    );
+    const versionDisplayName =
+        versionUserName !== FILE_REQUEST_NAME ? (
+            versionUserName
+        ) : (
+            <FormattedMessage {...messages.fileRequestDisplayName} />
+        );
     // Version state helpers
-    const isDeleted = action === VERSION_DELETE_ACTION;
+    const isDeleted = versionAction === VERSION_DELETE_ACTION;
     const isDownloadable = !!is_download_available;
     const isLimited = versionCount - versionInteger >= versionLimit;
-    const isRestricted = isWatermarked && !isCurrent; // Watermarked files do not support prior version preview
+    const isOffice = FILE_EXTENSIONS_OFFICE.includes(extension);
+    const isRestricted = (isOffice || isWatermarked) && !isCurrent;
+    const isRetained = !!retentionAppliedAt && (!retentionDispositionAtDate || retentionDispositionAtDate > new Date());
 
     // Version action helpers
     const canPreview = can_preview && !isDeleted && !isLimited && !isRestricted;
@@ -115,12 +138,16 @@ const VersionsItem = ({
                         </div>
                     )}
 
-                    <div className="bcs-VersionsItem-log" data-testid="bcs-VersionsItem-log" title={versionUserName}>
-                        <FormattedMessage {...getActionMessage(action)} values={{ name: versionUserName }} />
+                    <div className="bcs-VersionsItem-log" data-testid="bcs-VersionsItem-log" title={versionDisplayName}>
+                        <FormattedMessage
+                            {...ACTION_MAP[versionAction]}
+                            values={{ name: versionDisplayName, versionPromoted }}
+                        />
                     </div>
+
                     <div className="bcs-VersionsItem-info">
                         {versionTimestamp && (
-                            <time className="bcs-VersionsItem-date" dateTime={createdAt}>
+                            <time className="bcs-VersionsItem-date" dateTime={versionTime}>
                                 <ReadableTime
                                     alwaysShowTime
                                     relativeThreshold={FIVE_MINUTES_MS}
@@ -128,8 +155,14 @@ const VersionsItem = ({
                                 />
                             </time>
                         )}
-                        {!!size && <span className="bcs-VersionsItem-size">{versionSize}</span>}
+                        {!!size && <span className="bcs-VersionsItem-size">{sizeUtil(size)}</span>}
                     </div>
+
+                    {isRetained && (
+                        <div className="bcs-VersionsItem-retention">
+                            <VersionsItemRetention retention={retention} />
+                        </div>
+                    )}
 
                     {isLimited && hasActions && (
                         <div className="bcs-VersionsItem-footer">
@@ -143,6 +176,7 @@ const VersionsItem = ({
                 <VersionsItemActions
                     fileId={fileId}
                     isCurrent={isCurrent}
+                    isRetained={isRetained}
                     onDelete={handleAction(onDelete)}
                     onDownload={handleAction(onDownload)}
                     onPreview={handleAction(onPreview)}

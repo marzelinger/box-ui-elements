@@ -5,28 +5,45 @@
 
 import * as React from 'react';
 import noop from 'lodash/noop';
+import getProp from 'lodash/get';
 import classNames from 'classnames';
 import { FormattedMessage, injectIntl } from 'react-intl';
+import type { InjectIntlProvidedProps } from 'react-intl';
 import commonMessages from '../../../../common/messages';
 import messages from './messages';
-import apiMessages from '../../../../api/messages';
 import commentFormMessages from '../comment-form/messages';
 import Form from '../../../../components/form-elements/form/Form';
 import ContactDatalistItem from '../../../../components/contact-datalist-item/ContactDatalistItem';
 import TextArea from '../../../../components/text-area';
 import DatePicker from '../../../../components/date-picker/DatePicker';
+import Checkbox from '../../../../components/checkbox';
 import PillSelectorDropdown from '../../../../components/pill-selector-dropdown/PillSelectorDropdown';
 import Button from '../../../../components/button/Button';
+import { FeatureFlag } from '../../../common/feature-checking';
 import PrimaryButton from '../../../../components/primary-button/PrimaryButton';
-import InlineError from '../../../../components/inline-error/InlineError';
-import { TASK_EDIT_MODE_CREATE, TASK_EDIT_MODE_EDIT } from '../../../../constants';
+import {
+    TASK_COMPLETION_RULE_ANY,
+    TASK_COMPLETION_RULE_ALL,
+    TASK_EDIT_MODE_CREATE,
+    TASK_EDIT_MODE_EDIT,
+} from '../../../../constants';
 import { ACTIVITY_TARGETS, INTERACTION_TARGET } from '../../../common/interactionTargets';
-import type { TaskCollabAssignee, TaskType, TaskEditMode, TaskUpdatePayload } from '../../../../common/types/tasks';
+import type {
+    TaskCompletionRule,
+    TaskCollabAssignee,
+    TaskType,
+    TaskEditMode,
+    TaskUpdatePayload,
+} from '../../../../common/types/tasks';
+import TaskError from './TaskError';
+import type { GetAvatarUrlCallback } from '../../../common/flowTypes';
+import type { ElementsXhrError } from '../../../../common/types/api';
+import type { SelectorItems, SelectorItem, UserMini, GroupMini } from '../../../../common/types/core';
 
 import './TaskForm.scss';
 
 type TaskFormProps = {|
-    error?: any,
+    error?: { status: number }, // TODO: update to ElementsXhrError once API supports it
     isDisabled?: boolean,
     onCancel: () => any,
     onSubmitError: (e: ElementsXhrError) => any,
@@ -36,6 +53,7 @@ type TaskFormProps = {|
 
 type TaskFormFieldProps = {|
     approvers: Array<TaskCollabAssignee>,
+    completionRule: TaskCompletionRule,
     dueDate?: ?string,
     id: string,
     message: string,
@@ -43,13 +61,14 @@ type TaskFormFieldProps = {|
 
 type TaskFormConsumerProps = {|
     ...TaskFormFieldProps,
-    approverSelectorContacts: SelectorItems,
+    approverSelectorContacts: SelectorItems<UserMini | GroupMini>,
     className?: string,
     createTask: (
         text: string,
-        approvers: SelectorItems,
+        approvers: SelectorItems<>,
         taskType: TaskType,
         dueDate: ?string,
+        completionRule: TaskCompletionRule,
         onSuccess: ?Function,
         onError: ?Function,
     ) => any,
@@ -64,7 +83,9 @@ type Props = TaskFormProps & TaskFormConsumerProps & InjectIntlProvidedProps;
 type TaskFormFieldName = 'taskName' | 'taskAssignees' | 'taskDueDate';
 
 type State = {|
+    approverTextInput: string, // partial text input value for approver field before autocomplete/select
     approvers: Array<TaskCollabAssignee>,
+    completionRule: TaskCompletionRule,
     dueDate?: ?Date,
     formValidityState: { [key: TaskFormFieldName]: ?{ code: string, message: string } },
     id: string,
@@ -73,13 +94,14 @@ type State = {|
     message: string,
 |};
 
-function convertAssigneesToSelectorItems(approvers: Array<TaskCollabAssignee>): SelectorItems {
+function convertAssigneesToSelectorItems(approvers: Array<TaskCollabAssignee>): SelectorItems<> {
     return approvers.map(({ target }) => {
-        const newSelectorItem: SelectorItem = {
-            ...target,
-            item: {},
+        const newSelectorItem: SelectorItem<UserMini | GroupMini> = {
+            id: target.id,
+            name: target.name,
+            item: target,
             value: target.id,
-            text: target.name,
+            text: target.name, // for PillSelectorDropdown SelectorOptions type
         };
 
         return newSelectorItem;
@@ -98,10 +120,12 @@ class TaskForm extends React.Component<Props, State> {
     state = this.getInitialFormState();
 
     getInitialFormState() {
-        const { dueDate, id, message, approvers } = this.props;
+        const { dueDate, id, message, approvers, completionRule } = this.props;
         return {
             id,
+            completionRule: completionRule || TASK_COMPLETION_RULE_ALL,
             approvers,
+            approverTextInput: '',
             dueDate: dueDate ? new Date(dueDate) : null,
             formValidityState: {},
             message,
@@ -113,17 +137,23 @@ class TaskForm extends React.Component<Props, State> {
     validateForm = (only?: TaskFormFieldName) => {
         this.setState(state => {
             const { intl } = this.props;
-            const { approvers, message } = state;
-            const assigneeFieldError = {
+            const { approvers, message, approverTextInput } = state;
+            const assigneeFieldMissingError = {
                 code: 'required',
                 message: intl.formatMessage(commonMessages.requiredFieldError),
+            };
+            const assigneeFieldInvalidError = {
+                code: 'invalid',
+                message: intl.formatMessage(commonMessages.invalidUserError),
             };
             const messageFieldError = {
                 code: 'required',
                 message: intl.formatMessage(commonMessages.requiredFieldError),
             };
             const formValidityState = {
-                taskAssignees: approvers.length ? null : assigneeFieldError,
+                taskAssignees:
+                    (approverTextInput.length ? assigneeFieldInvalidError : null) ||
+                    (approvers.length ? null : assigneeFieldMissingError),
                 taskName: message ? null : messageFieldError,
                 taskDueDate: null,
             };
@@ -174,7 +204,8 @@ class TaskForm extends React.Component<Props, State> {
             'data-resin-taskid': id,
             'data-resin-tasktype': taskType,
             'data-resin-isediting': editMode === TASK_EDIT_MODE_EDIT,
-            'data-resin-numassigneesadded': addedAssignees.length,
+            'data-resin-numassigneesadded': addedAssignees.filter(assignee => assignee.target.type === 'user').length,
+            'data-resin-numgroupssadded': addedAssignees.filter(assignee => assignee.target.type === 'group').length,
             'data-resin-numassigneesremoved': removedAssignees.length,
             'data-resin-assigneesadded': addedAssignees.map(assignee => assignee.target.id),
             'data-resin-assigneesremoved': removedAssignees.map(assignee => assignee.target.id),
@@ -200,7 +231,7 @@ class TaskForm extends React.Component<Props, State> {
 
     handleValidSubmit = (): void => {
         const { id, createTask, editTask, editMode, taskType } = this.props;
-        const { message, approvers: currentApprovers, dueDate, isValid } = this.state;
+        const { message, approvers: currentApprovers, dueDate, completionRule, isValid } = this.state;
         const dueDateString = dueDate && dueDate.toISOString();
 
         if (!isValid) return;
@@ -211,6 +242,7 @@ class TaskForm extends React.Component<Props, State> {
             editTask(
                 {
                     id,
+                    completion_rule: completionRule,
                     description: message,
                     due_at: dueDateString,
                     addedAssignees: convertAssigneesToSelectorItems(this.getAddedAssignees()),
@@ -225,6 +257,7 @@ class TaskForm extends React.Component<Props, State> {
                 convertAssigneesToSelectorItems(currentApprovers),
                 taskType,
                 dueDateString,
+                completionRule,
                 this.handleSubmitSuccess,
                 this.handleSubmitError,
             );
@@ -244,8 +277,13 @@ class TaskForm extends React.Component<Props, State> {
         this.validateForm('taskDueDate');
     };
 
+    handleCompletionRuleChange = (event: SyntheticInputEvent<HTMLInputElement>) => {
+        this.setState({ completionRule: event.target.checked ? TASK_COMPLETION_RULE_ANY : TASK_COMPLETION_RULE_ALL });
+    };
+
     handleApproverSelectorInput = (value: any): void => {
         const { getApproverWithQuery = noop } = this.props;
+        this.setState({ approverTextInput: value });
         getApproverWithQuery(value);
     };
 
@@ -255,11 +293,7 @@ class TaskForm extends React.Component<Props, State> {
                 pills.map(pill => {
                     return {
                         id: '',
-                        target: {
-                            id: pill.id,
-                            name: pill.text,
-                            type: 'user',
-                        },
+                        target: pill.item,
                         role: 'ASSIGNEE',
                         type: 'task_collaborator',
                         status: 'NOT_STARTED',
@@ -267,6 +301,7 @@ class TaskForm extends React.Component<Props, State> {
                     };
                 }),
             ),
+            approverTextInput: '',
         });
 
         this.validateForm('taskAssignees');
@@ -290,17 +325,17 @@ class TaskForm extends React.Component<Props, State> {
     };
 
     render() {
-        const { approverSelectorContacts, className, error, isDisabled, intl, editMode } = this.props;
-        const { dueDate, approvers, message, formValidityState, isLoading } = this.state;
+        const { approverSelectorContacts, className, error, isDisabled, intl, editMode, taskType } = this.props;
+        const { dueDate, approvers, message, formValidityState, isLoading, completionRule } = this.state;
         const inputContainerClassNames = classNames('bcs-task-input-container', 'bcs-task-input-is-open', className);
         const isCreateEditMode = editMode === TASK_EDIT_MODE_CREATE;
-        const renderApprovers = convertAssigneesToSelectorItems(approvers);
+        const selectedApprovers = convertAssigneesToSelectorItems(approvers);
 
         // filter out selected approvers
         // map to datalist item format
-        const approverOptions = approverSelectorContacts
-            .filter(({ id }) => !renderApprovers.find(({ value }) => value === id))
-            .map(({ id, item }) => ({ ...item, text: item.name, value: id }));
+        const approverOptions = approverSelectorContacts.filter(
+            ({ id }) => !selectedApprovers.find(({ value }) => value === id),
+        );
 
         const pillSelectorOverlayClasses = classNames({
             scrollable: approverOptions.length > 4,
@@ -309,19 +344,22 @@ class TaskForm extends React.Component<Props, State> {
         const submitButtonMessage = isCreateEditMode
             ? messages.tasksAddTaskFormSubmitLabel
             : messages.tasksEditTaskFormSubmitLabel;
+        const shouldShowCompletionRule = approvers.length > 0;
 
-        const taskErrorMessage = isCreateEditMode
-            ? apiMessages.taskCreateErrorMessage
-            : messages.taskUpdateErrorMessage;
+        // Enable checkbox when there is a group or multiple users being assigned
+        // TODO: consider setting contants for assignee types to src/constants.js
+        // - move from src/features/collaborator-avatars/constants.js
+        const isCompletionRuleCheckboxDisabled =
+            approvers.filter(approver => approver.target.type === 'group').length <= 0 &&
+            approvers.filter(approver => approver.target.type === 'user').length <= 1;
+
+        const isCompletionRuleCheckboxChecked = completionRule === TASK_COMPLETION_RULE_ANY;
+        const isForbiddenErrorOnEdit = isLoading || (getProp(error, 'status') === 403 && !isCreateEditMode);
 
         return (
             <div className={inputContainerClassNames} data-resin-component="taskform">
                 <div className="bcs-task-input-form-container">
-                    {error ? (
-                        <InlineError title={<FormattedMessage {...messages.taskCreateErrorTitle} />}>
-                            <FormattedMessage {...taskErrorMessage} />
-                        </InlineError>
-                    ) : null}
+                    <TaskError editMode={editMode} error={error} taskType={taskType} />
                     <Form
                         formValidityState={formValidityState}
                         onInvalidSubmit={this.handleInvalidSubmit}
@@ -330,7 +368,7 @@ class TaskForm extends React.Component<Props, State> {
                         <PillSelectorDropdown
                             className={pillSelectorOverlayClasses}
                             error={this.getErrorByFieldname('taskAssignees')}
-                            disabled={isLoading}
+                            disabled={isForbiddenErrorOnEdit}
                             inputProps={{ 'data-testid': 'task-form-assignee-input' }}
                             isRequired
                             label={<FormattedMessage {...messages.tasksAddTaskFormSelectAssigneesLabel} />}
@@ -340,23 +378,59 @@ class TaskForm extends React.Component<Props, State> {
                             onRemove={this.handleApproverSelectorRemove}
                             onSelect={this.handleApproverSelectorSelect}
                             placeholder={intl.formatMessage(commentFormMessages.approvalAddAssignee)}
-                            selectedOptions={renderApprovers}
+                            selectedOptions={selectedApprovers}
                             selectorOptions={approverOptions}
+                            shouldSetActiveItemOnOpen
+                            shouldClearUnmatchedInput
                             validateForError={() => this.validateForm('taskAssignees')}
                         >
-                            {approverOptions.map(({ id, name, email }) => (
+                            {approverOptions.map(({ id, name, item = {} }) => (
                                 <ContactDatalistItem
                                     key={id}
                                     data-testid="task-assignee-option"
                                     name={name}
-                                    subtitle={email}
+                                    subtitle={
+                                        item.type === 'group' ? (
+                                            <FormattedMessage {...messages.taskCreateGroupLabel} />
+                                        ) : (
+                                            item.email
+                                        )
+                                    }
                                 />
                             ))}
                         </PillSelectorDropdown>
+
+                        {shouldShowCompletionRule && (
+                            <>
+                                <FeatureFlag feature="activityFeed.tasks.assignToGroup">
+                                    <Checkbox
+                                        data-testid="task-form-completion-rule-checkbox-group"
+                                        isChecked={isCompletionRuleCheckboxChecked}
+                                        isDisabled={isCompletionRuleCheckboxDisabled || isForbiddenErrorOnEdit}
+                                        label={<FormattedMessage {...messages.taskAnyCheckboxLabel} />}
+                                        tooltip={intl.formatMessage(messages.taskAnyInfoGroupTooltip)}
+                                        name="completionRule"
+                                        onChange={this.handleCompletionRuleChange}
+                                    />
+                                </FeatureFlag>
+                                <FeatureFlag not feature="activityFeed.tasks.assignToGroup">
+                                    <Checkbox
+                                        data-testid="task-form-completion-rule-checkbox"
+                                        isChecked={isCompletionRuleCheckboxChecked}
+                                        isDisabled={isCompletionRuleCheckboxDisabled || isForbiddenErrorOnEdit}
+                                        label={<FormattedMessage {...messages.taskAnyCheckboxLabel} />}
+                                        tooltip={intl.formatMessage(messages.taskAnyInfoTooltip)}
+                                        name="completionRule"
+                                        onChange={this.handleCompletionRuleChange}
+                                    />
+                                </FeatureFlag>
+                            </>
+                        )}
+
                         <TextArea
                             className="bcs-task-name-input"
                             data-testid="task-form-name-input"
-                            disabled={isDisabled || isLoading}
+                            disabled={isDisabled || isForbiddenErrorOnEdit}
                             error={this.getErrorByFieldname('taskName')}
                             isRequired
                             label={<FormattedMessage {...messages.tasksAddTaskFormMessageLabel} />}
@@ -373,9 +447,8 @@ class TaskForm extends React.Component<Props, State> {
                                 [INTERACTION_TARGET]: ACTIVITY_TARGETS.TASK_DATE_PICKER,
                                 'data-testid': 'task-form-date-input',
                             }}
-                            isDisabled={isLoading}
+                            isDisabled={isForbiddenErrorOnEdit}
                             isRequired={false}
-                            isTextInputAllowed
                             label={<FormattedMessage {...messages.tasksAddTaskFormDueDateLabel} />}
                             minDate={new Date()}
                             name="taskDueDate"
@@ -399,7 +472,7 @@ class TaskForm extends React.Component<Props, State> {
                                 className="bcs-task-input-submit-btn"
                                 data-resin-target={ACTIVITY_TARGETS.APPROVAL_FORM_POST}
                                 data-testid="task-form-submit-button"
-                                isDisabled={isLoading}
+                                isDisabled={isForbiddenErrorOnEdit}
                                 isLoading={isLoading}
                                 {...this.addResinInfo()}
                             >

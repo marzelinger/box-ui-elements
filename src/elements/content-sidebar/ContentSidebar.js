@@ -13,7 +13,7 @@ import API from '../../api';
 import APIContext from '../common/api-context';
 import Internationalize from '../common/Internationalize';
 import Sidebar from './Sidebar';
-import SidebarRouter from './SidebarRouter';
+import NavRouter from '../common/nav-router';
 import SidebarUtils from './SidebarUtils';
 import { DEFAULT_HOSTNAME_API, CLIENT_NAME_CONTENT_SIDEBAR, ORIGIN_CONTENT_SIDEBAR } from '../../constants';
 import { EVENT_JS_READY } from '../common/logger/constants';
@@ -27,6 +27,14 @@ import type { DetailsSidebarProps } from './DetailsSidebar';
 import type { ActivitySidebarProps } from './ActivitySidebar';
 import type { MetadataSidebarProps } from './MetadataSidebar';
 import type { VersionsSidebarProps } from './versions';
+import type { WithLoggerProps } from '../../common/types/logging';
+import type { ElementsXhrError, RequestOptions, ErrorContextProps } from '../../common/types/api';
+import type { MetadataEditor } from '../../common/types/metadata';
+import type { StringMap, Token, User, BoxItem } from '../../common/types/core';
+import type { AdditionalSidebarTab } from './flowTypes';
+import type { FeatureConfig } from '../common/feature-checking';
+import type APICache from '../../utils/Cache';
+
 import '../common/fonts.scss';
 import '../common/base.scss';
 import '../common/modal.scss';
@@ -50,11 +58,13 @@ type Props = {
     hasAdditionalTabs: boolean,
     hasMetadata: boolean,
     hasSkills: boolean,
+    hasVersions: boolean,
     history?: RouterHistory,
-    isLarge?: boolean,
+    isDefaultOpen?: boolean,
     language?: string,
     messages?: StringMap,
     metadataSidebarProps: MetadataSidebarProps,
+    onAnnotationSelect?: Function,
     onVersionChange?: Function,
     onVersionHistoryClick?: Function,
     requestInterceptor?: Function,
@@ -83,6 +93,8 @@ class ContentSidebar extends React.Component<Props, State> {
 
     api: API;
 
+    sidebarRef: Sidebar;
+
     static defaultProps = {
         activitySidebarProps: {},
         apiHost: DEFAULT_HOSTNAME_API,
@@ -96,7 +108,7 @@ class ContentSidebar extends React.Component<Props, State> {
         hasAdditionalTabs: false,
         hasMetadata: false,
         hasSkills: false,
-        isLarge: true,
+        isDefaultOpen: true,
         metadataSidebarProps: {},
     };
 
@@ -272,7 +284,7 @@ class ContentSidebar extends React.Component<Props, State> {
      * @param {Object|void} [fetchOptions] - Fetch options
      * @return {void}
      */
-    fetchFile(fetchOptions: FetchOptions = {}): void {
+    fetchFile(fetchOptions: RequestOptions = {}): void {
         const { fileId }: Props = this.props;
         this.setState({ isLoading: true });
         if (fileId && SidebarUtils.canHaveSidebar(this.props)) {
@@ -280,6 +292,16 @@ class ContentSidebar extends React.Component<Props, State> {
                 ...fetchOptions,
                 fields: SIDEBAR_FIELDS_TO_FETCH,
             });
+        }
+    }
+
+    /**
+     * Refreshes the sidebar panel
+     * @returns {void}
+     */
+    refresh(): void {
+        if (this.sidebarRef) {
+            this.sidebarRef.refresh();
         }
     }
 
@@ -305,11 +327,13 @@ class ContentSidebar extends React.Component<Props, State> {
             hasActivityFeed,
             hasMetadata,
             hasSkills,
+            hasVersions,
             history,
-            isLarge,
+            isDefaultOpen,
             language,
             messages,
             metadataSidebarProps,
+            onAnnotationSelect,
             onVersionChange,
             onVersionHistoryClick,
             versionsSidebarProps,
@@ -324,7 +348,7 @@ class ContentSidebar extends React.Component<Props, State> {
         return (
             <Internationalize language={language} messages={messages}>
                 <APIContext.Provider value={(this.api: any)}>
-                    <SidebarRouter history={history} initialEntries={[initialPath]}>
+                    <NavRouter history={history} initialEntries={[initialPath]}>
                         <Sidebar
                             activitySidebarProps={activitySidebarProps}
                             additionalTabs={additionalTabs}
@@ -339,15 +363,20 @@ class ContentSidebar extends React.Component<Props, State> {
                             hasAdditionalTabs={hasAdditionalTabs}
                             hasMetadata={hasMetadata}
                             hasSkills={hasSkills}
-                            isLarge={isLarge}
+                            hasVersions={hasVersions}
+                            isDefaultOpen={isDefaultOpen}
                             isLoading={isLoading}
                             metadataEditors={metadataEditors}
                             metadataSidebarProps={metadataSidebarProps}
+                            onAnnotationSelect={onAnnotationSelect}
                             onVersionChange={onVersionChange}
                             onVersionHistoryClick={onVersionHistoryClick}
                             versionsSidebarProps={versionsSidebarProps}
+                            wrappedComponentRef={ref => {
+                                this.sidebarRef = ref;
+                            }}
                         />
-                    </SidebarRouter>
+                    </NavRouter>
                 </APIContext.Provider>
             </Internationalize>
         );

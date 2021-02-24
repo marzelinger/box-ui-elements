@@ -1,8 +1,7 @@
 @import '../../../common/variables';
 @import './mixins';
 
-$bcs-task-grid: 4px;
-$bcs-task-left-offset: 10 * $bcs-task-grid + 2px;
+$bcs-task-left-offset: 10 * $bdl-grid-unit + 2px;
 
 .bcs-Task-media {
     opacity: 1;
@@ -11,30 +10,51 @@ $bcs-task-left-offset: 10 * $bcs-task-grid + 2px;
     &.bcs-is-pending {
         opacity: .4;
     }
+
+    .bdl-Media-body {
+        overflow: hidden;
+    }
 }
 
 .bcs-Task-avatar {
-    height: 100%;
     position: relative;
+    height: 100%;
 }
 
 .bcs-Task-avatarBadge {
     @include avatar-badge-icon;
 
-    border-width: 2px;
     right: -4px;
+    border-width: 2px;
 }
 
-.bcs-Task-statusContainer {
-    margin-top: 2 * $bcs-task-grid;
+.bcs-Task-headline {
+    // target only Edge because this breaks other browsers
+    // but fixes Edge
+    @supports (-ms-ime-align: auto) {
+        word-break: break-all;
+    }
+}
+
+.bcs-Task-status {
+    margin-top: 3 * $bdl-grid-unit;
+    margin-bottom: 2 * $bdl-grid-unit;
+
+    & > * {
+        margin-right: $bdl-grid-unit;
+    }
+}
+
+.bcs-Task-dueDate {
+    margin-bottom: 3 * $bdl-grid-unit;
 }
 
 .bcs-Task-assigneeListContainer {
-    margin-top: $bcs-task-grid;
+    margin-top: $bdl-grid-unit;
 }
 
 .bcs-Task-actionsContainer {
-    margin-top: 5 * $bcs-task-grid;
+    margin-top: 5 * $bdl-grid-unit;
 }
 
 // tethered styles for delete confirmation modal

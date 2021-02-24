@@ -8,12 +8,13 @@
     .bcpr-body {
         display: flex;
         flex: 1;
+        min-height: 0; // Required to prevent overflow of child flex elements
     }
 
     .bcpr-container {
+        position: relative;
         display: flex;
         flex: 1;
-        position: relative;
     }
 
     .bcpr-content {
@@ -28,14 +29,14 @@
 
     .bcpr-navigate-left,
     .bcpr-navigate-right {
-        display: block;
-        height: 64px;
-        opacity: 0;
         position: absolute;
         top: 50%;
-        transform: translateY(-50%);
-        transition: opacity .5s ease;
+        display: block;
         width: 50px;
+        height: 64px;
+        transform: translateY(-50%);
+        opacity: 0;
+        transition: opacity .5s ease;
 
         &:focus,
         &:hover {
@@ -71,11 +72,11 @@
     }
 
     .bcpr-loading-wrapper {
-        background-color: $bdl-gray-05;
         display: flex;
         flex: 1;
         flex-direction: column;
         justify-content: center;
+        background-color: $bdl-gray-05;
 
         .bcpr-loaded & {
             display: none;

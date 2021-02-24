@@ -22,6 +22,7 @@ import IconPencil from '../../../../icons/general/IconPencil';
 import UserLink from '../common/user-link';
 import API from '../../../../api/APIFactory';
 import {
+    TASK_COMPLETION_RULE_ALL,
     TASK_NEW_APPROVED,
     TASK_NEW_REJECTED,
     TASK_NEW_NOT_STARTED,
@@ -31,23 +32,31 @@ import {
     PLACEHOLDER_USER,
     TASK_EDIT_MODE_EDIT,
 } from '../../../../constants';
-import type { TaskAssigneeCollection, TaskNew, TaskType } from '../../../../common/types/tasks';
+import type { TaskAssigneeCollection, TaskNew } from '../../../../common/types/tasks';
 import { ACTIVITY_TARGETS } from '../../../common/interactionTargets';
 import { bdlGray80 } from '../../../../styles/variables';
 import TaskActions from './TaskActions';
+import TaskCompletionRuleIcon from './TaskCompletionRuleIcon';
 import TaskDueDate from './TaskDueDate';
 import TaskStatus from './TaskStatus';
 import AssigneeList from './AssigneeList';
 import TaskModal from '../../TaskModal';
+import TaskMultiFileIcon from './TaskMultiFileIcon';
 import commonMessages from '../../../common/messages';
 import messages from './messages';
+import type { GetAvatarUrlCallback, GetProfileUrlCallback } from '../../../common/flowTypes';
+import type { ElementsXhrError } from '../../../../common/types/api';
+import type { SelectorItems, User } from '../../../../common/types/core';
+import type { ActionItemError } from '../../../../common/types/feed';
+import type { Translations } from '../../flowTypes';
+import type { FeatureConfig } from '../../../common/feature-checking';
 
 import './Task.scss';
 
 type Props = {|
     ...TaskNew,
     api: API,
-    approverSelectorContacts: SelectorItems,
+    approverSelectorContacts: SelectorItems<>,
     currentUser: User,
     error?: ActionItemError,
     features?: FeatureConfig,
@@ -60,6 +69,7 @@ type Props = {|
     onDelete?: Function,
     onEdit?: Function,
     onModalClose?: Function,
+    onView?: Function,
     translatedTaggedMessage?: string,
     translations?: Translations,
 |};
@@ -75,21 +85,11 @@ type State = {
     modalError: ?ElementsXhrError,
 };
 
-const getMessageForTask = (isCurrentUser: boolean, taskType: TaskType) => {
-    if (isCurrentUser) {
-        if (taskType === TASK_TYPE_APPROVAL) {
-            return messages.tasksFeedHeadlineApprovalCurrentUser;
-        }
-        return messages.tasksFeedHeadlineGeneralCurrentUser;
-    }
-
-    if (taskType === TASK_TYPE_APPROVAL) {
-        return messages.tasksFeedHeadlineApproval;
-    }
-    return messages.tasksFeedHeadlineGeneral;
-};
-
 class Task extends React.Component<Props, State> {
+    static defaultProps = {
+        completion_rule: TASK_COMPLETION_RULE_ALL,
+    };
+
     state = {
         loadCollabError: undefined,
         assignedToFull: this.props.assigned_to,
@@ -139,10 +139,6 @@ class Task extends React.Component<Props, State> {
         if (onModalClose) {
             onModalClose();
         }
-    };
-
-    handleEditSubmitSuccess = () => {
-        this.setState({ isEditing: false });
     };
 
     handleEditSubmitError = (error: ElementsXhrError) => {
@@ -199,6 +195,7 @@ class Task extends React.Component<Props, State> {
         const {
             approverSelectorContacts,
             assigned_to,
+            completion_rule,
             created_at,
             created_by,
             currentUser,
@@ -212,8 +209,10 @@ class Task extends React.Component<Props, State> {
             isPending,
             description,
             onEdit,
+            onView,
             permissions,
             status,
+            task_links,
             task_type,
             translatedTaggedMessage,
             translations,
@@ -231,28 +230,46 @@ class Task extends React.Component<Props, State> {
 
         const inlineError = loadCollabError || error;
 
-        const currentUserAssignment =
-            assigned_to && assigned_to.entries
-                ? assigned_to.entries.find(({ target }) => target.id === currentUser.id)
-                : null;
+        const assignments = assigned_to && assigned_to.entries;
+
+        const currentUserAssignment = assignments && assignments.find(({ target }) => target.id === currentUser.id);
 
         const createdByUser = created_by.target || PLACEHOLDER_USER;
 
         const createdAtTimestamp = new Date(created_at).getTime();
 
-        const shouldShowActions =
-            currentUserAssignment &&
-            currentUserAssignment.permissions &&
-            currentUserAssignment.permissions.can_update &&
-            currentUserAssignment.status === TASK_NEW_NOT_STARTED &&
-            (status === TASK_NEW_NOT_STARTED || status === TASK_NEW_IN_PROGRESS);
+        const isTaskCompleted = !(status === TASK_NEW_NOT_STARTED || status === TASK_NEW_IN_PROGRESS);
+
+        const isCreator = created_by.target.id === currentUser.id;
+
+        const isMultiFile = task_links.entries.length > 1;
+
+        let shouldShowActions;
+        if (isTaskCompleted) {
+            shouldShowActions = false;
+        } else if (isMultiFile && isCreator) {
+            shouldShowActions = true;
+        } else {
+            shouldShowActions =
+                currentUserAssignment &&
+                currentUserAssignment.permissions &&
+                currentUserAssignment.permissions.can_update &&
+                currentUserAssignment.status === TASK_NEW_NOT_STARTED;
+        }
 
         const TaskTypeIcon = task_type === TASK_TYPE_APPROVAL ? IconTaskApproval : IconTaskGeneral;
 
         const isMenuVisible = (permissions.can_delete || permissions.can_update) && !isPending;
 
         return (
-            <div className="bcs-Task">
+            <div
+                className="bcs-Task"
+                data-resin-feature="tasks"
+                data-resin-taskid={id}
+                data-resin-tasktype={task_type}
+                data-resin-numassignees={assignments && assignments.length}
+            >
+                {/* $FlowFixMe */}
                 {inlineError ? <ActivityError {...inlineError} /> : null}
                 <Media
                     className={classNames('bcs-Task-media', {
@@ -272,10 +289,16 @@ class Task extends React.Component<Props, State> {
                                 constraints={[{ to: 'scrollParent', attachment: 'together' }]}
                                 targetAttachment="bottom right"
                             >
-                                <Media.Menu isDisabled={isConfirmingDelete} data-testid="task-actions-menu">
+                                <Media.Menu
+                                    isDisabled={isConfirmingDelete}
+                                    data-testid="task-actions-menu"
+                                    menuProps={{
+                                        'data-resin-component': ACTIVITY_TARGETS.TASK_OPTIONS,
+                                    }}
+                                >
                                     {permissions.can_update && (
                                         <MenuItem
-                                            data-resin-target={ACTIVITY_TARGETS.INLINE_EDIT}
+                                            data-resin-target={ACTIVITY_TARGETS.TASK_OPTIONS_EDIT}
                                             data-testid="edit-task"
                                             onClick={this.handleEditClick}
                                         >
@@ -285,7 +308,7 @@ class Task extends React.Component<Props, State> {
                                     )}
                                     {permissions.can_delete && (
                                         <MenuItem
-                                            data-resin-target={ACTIVITY_TARGETS.INLINE_DELETE}
+                                            data-resin-target={ACTIVITY_TARGETS.TASK_OPTIONS_DELETE}
                                             data-testid="delete-task"
                                             onClick={this.handleDeleteClick}
                                         >
@@ -296,6 +319,7 @@ class Task extends React.Component<Props, State> {
                                 </Media.Menu>
                                 {isConfirmingDelete && (
                                     <DeleteConfirmation
+                                        data-resin-component={ACTIVITY_TARGETS.TASK_OPTIONS}
                                         isOpen={isConfirmingDelete}
                                         message={messages.taskDeletePrompt}
                                         onDeleteCancel={this.handleDeleteCancel}
@@ -304,22 +328,23 @@ class Task extends React.Component<Props, State> {
                                 )}
                             </TetherComponent>
                         )}
-                        <div>
-                            <FormattedMessage
-                                {...getMessageForTask(!!currentUserAssignment, task_type)}
-                                values={{
-                                    user: (
-                                        <UserLink
-                                            {...createdByUser}
-                                            data-resin-target={ACTIVITY_TARGETS.PROFILE}
-                                            getUserProfileUrl={getUserProfileUrl}
-                                        />
-                                    ),
-                                }}
+                        <div className="bcs-Task-headline">
+                            <UserLink
+                                {...createdByUser}
+                                data-resin-target={ACTIVITY_TARGETS.PROFILE}
+                                getUserProfileUrl={getUserProfileUrl}
                             />
                         </div>
                         <div>
                             <ActivityTimestamp date={createdAtTimestamp} />
+                        </div>
+                        <div className="bcs-Task-status">
+                            <TaskStatus status={status} />
+                            <TaskMultiFileIcon isMultiFile={isMultiFile} />
+                            <TaskCompletionRuleIcon completionRule={completion_rule} />
+                        </div>
+                        <div className="bcs-Task-dueDate">
+                            {!!due_at && <TaskDueDate dueDate={due_at} status={status} />}
                         </div>
                         <div>
                             <ActivityMessage
@@ -331,10 +356,6 @@ class Task extends React.Component<Props, State> {
                                 getUserProfileUrl={getUserProfileUrl}
                             />
                         </div>
-                        <div className="bcs-Task-statusContainer">
-                            {!!due_at && <TaskDueDate dueDate={due_at} status={status} />}
-                            <TaskStatus status={status} />
-                        </div>
                         <div className="bcs-Task-assigneeListContainer">
                             <AssigneeList
                                 isOpen={isAssigneeListOpen}
@@ -345,25 +366,23 @@ class Task extends React.Component<Props, State> {
                                 users={isAssigneeListOpen ? assignedToFull : assigned_to}
                             />
                         </div>
-                        {currentUserAssignment && shouldShowActions && (
-                            <div className="bcs-Task-actionsContainer">
+                        {shouldShowActions && (
+                            <div className="bcs-Task-actionsContainer" data-testid="action-container">
                                 <TaskActions
+                                    isMultiFile={isMultiFile}
                                     taskType={task_type}
                                     onTaskApproval={
                                         isPending
                                             ? noop
-                                            : () => {
-                                                  this.handleTaskAction(
-                                                      id,
-                                                      currentUserAssignment.id,
-                                                      TASK_NEW_APPROVED,
-                                                  );
-                                              }
+                                            : () =>
+                                                  // $FlowFixMe checked by shouldShowActions
+                                                  this.handleTaskAction(id, currentUserAssignment.id, TASK_NEW_APPROVED)
                                     }
                                     onTaskReject={
                                         isPending
                                             ? noop
                                             : () =>
+                                                  // $FlowFixMe checked by shouldShowActions
                                                   this.handleTaskAction(id, currentUserAssignment.id, TASK_NEW_REJECTED)
                                     }
                                     onTaskComplete={
@@ -372,10 +391,12 @@ class Task extends React.Component<Props, State> {
                                             : () =>
                                                   this.handleTaskAction(
                                                       id,
+                                                      // $FlowFixMe checked by shouldShowActions
                                                       currentUserAssignment.id,
                                                       TASK_NEW_COMPLETED,
                                                   )
                                     }
+                                    onTaskView={onView && (() => onView(id, isCreator))}
                                 />
                             </div>
                         )}
@@ -386,13 +407,14 @@ class Task extends React.Component<Props, State> {
                     error={modalError}
                     feedbackUrl={getFeatureConfig(features, 'activityFeed.tasks').feedbackUrl || ''}
                     onSubmitError={this.handleEditSubmitError}
-                    onSubmitSuccess={this.handleEditSubmitSuccess}
+                    onSubmitSuccess={this.handleEditModalClose}
                     onModalClose={this.handleEditModalClose}
                     isTaskFormOpen={isEditing}
                     taskFormProps={{
                         id,
                         approvers: assignedToFull.entries,
                         approverSelectorContacts,
+                        completionRule: completion_rule,
                         getApproverWithQuery,
                         getAvatarUrl,
                         createTask: () => {},

@@ -1,6 +1,14 @@
+// @flow strict
+
 import { defineMessages } from 'react-intl';
 
 const messages = defineMessages({
+    fileRequestDisplayName: {
+        defaultMessage: 'File Request',
+        description:
+            'name of the File Request feature used to translate when a File Request is uploaded by the service',
+        id: 'be.sidebarVersions.fileRequestDisplayName',
+    },
     versionsEmpty: {
         id: 'be.sidebarVersions.empty',
         description: 'Message to display when no versions are available',
@@ -46,6 +54,11 @@ const messages = defineMessages({
         defaultMessage: 'File version could not be deleted.',
         description: 'Error message for the version delete action.',
     },
+    versionActionDisabledRetention: {
+        id: 'be.sidebarVersions.disabledByRetention',
+        defaultMessage: 'Disabled by retention policy',
+        description: 'Tooltip message for actions disabled by retention policy.',
+    },
     versionActionDownload: {
         id: 'be.sidebarVersions.download',
         defaultMessage: 'Download',
@@ -88,7 +101,7 @@ const messages = defineMessages({
     },
     versionDeletedBy: {
         id: 'be.sidebarVersions.deletedBy',
-        defaultMessage: 'Deleted by { name }',
+        defaultMessage: 'Deleted by {name}',
         description: 'Message displayed for a deleted version. {name} is the user who performed the action.',
     },
     versionFetchError: {
@@ -112,9 +125,14 @@ const messages = defineMessages({
         defaultMessage: 'Version number {versionNumber}',
         description: 'Label given to the version badge for screen readers.',
     },
+    versionPromotedBy: {
+        id: 'be.sidebarVersions.promotedBy',
+        defaultMessage: 'Promoted from v{versionPromoted} by {name}',
+        description: 'Message displayed for a restored version. {name} is the user who performed the action.',
+    },
     versionRestoredBy: {
         id: 'be.sidebarVersions.restoredBy',
-        defaultMessage: 'Restored by { name }',
+        defaultMessage: 'Restored by {name}',
         description: 'Message displayed for a restored version. {name} is the user who performed the action.',
     },
     versionServerError: {
@@ -124,13 +142,33 @@ const messages = defineMessages({
     },
     versionUploadedBy: {
         id: 'be.sidebarVersions.uploadedBy',
-        defaultMessage: 'Uploaded by { name }',
+        defaultMessage: 'Uploaded by {name}',
         description: 'Message displayed for an uploaded version. {name} is the user who performed the action.',
     },
     versionUserUnknown: {
         id: 'be.sidebarVersions.versionUserUnknown',
         defaultMessage: 'Unknown',
         description: 'Name displayed for unknown or deleted users.',
+    },
+    versionMaxEntries: {
+        id: 'be.sidebarVersions.versionMaxEntries',
+        defaultMessage: 'Version history is limited to the last {maxVersions} entries.',
+        description: 'Max supported entries for version history',
+    },
+    versionRetentionDelete: {
+        id: 'be.sidebarVersions.versionRetentionDelete',
+        defaultMessage: 'Will be deleted {time} by retention policy.',
+        description: 'Message describing when the version will be deleted due to an applied retention policy.',
+    },
+    versionRetentionIndefinite: {
+        id: 'be.sidebarVersions.versionRetentionIndefinite',
+        defaultMessage: 'Retained indefinitely by retention policy.',
+        description: 'Message describing that the version retention policy is indefinite and will not expire.',
+    },
+    versionRetentionRemove: {
+        id: 'be.sidebarVersions.versionRetentionRemove',
+        defaultMessage: 'Retention policy expires on {time}.',
+        description: 'Message describing when the version retention policy will expire.',
     },
 });
 

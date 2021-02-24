@@ -19,6 +19,9 @@ import {
     SORT_DESC,
     ERROR_CODE_SEARCH,
 } from '../constants';
+import type { RequestOptions, ElementsErrorCallback } from '../common/types/api';
+import type { FlattenedBoxItem, FlattenedBoxItemCollection, Collection, BoxItemCollection } from '../common/types/core';
+import type APICache from '../utils/Cache';
 
 class Search extends Base {
     /**
@@ -167,9 +170,7 @@ class Search extends Base {
         this.itemCache = (this.itemCache || []).concat(flattened);
 
         this.getCache().set(this.key, {
-            item_collection: Object.assign({}, data, {
-                entries: this.itemCache,
-            }),
+            item_collection: { ...data, entries: this.itemCache },
         });
 
         this.finish();
@@ -192,10 +193,10 @@ class Search extends Base {
     /**
      * Does the network request
      *
-     * @param {FetchOptions} options - options for request
+     * @param {RequestOptions} options - options for request
      * @return {void}
      */
-    searchRequest(options: FetchOptions = {}): Promise<void> {
+    searchRequest(options: RequestOptions = {}): Promise<void> {
         if (this.isDestroyed()) {
             return Promise.reject();
         }
